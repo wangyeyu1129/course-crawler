@@ -1,6 +1,7 @@
 """Transactional course queue and results; SQLite is the recovery authority."""
 
 import json
+import logging
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -87,6 +88,8 @@ class CrawlStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(path)
         self.connection.row_factory = sqlite3.Row
+        self._batch_size = 1
+        self._pending_writes = 0
         with self.connection:
             self.connection.execute("""
                 CREATE TABLE IF NOT EXISTS courses (
@@ -192,9 +195,51 @@ class CrawlStore:
         with self.work_queue(limit, retry_failed=retry_failed) as queue:
             return list(queue.urls)
 
+    @contextmanager
+    def batch_writes(self, size: int = 1):
+        if type(size) is not int or size < 1:
+            raise ValueError("commit_batch_size must be a positive integer.")
+        if self._batch_size != 1 or self._pending_writes:
+            raise RuntimeError("Nested result batches are not supported.")
+        self._batch_size = size
+        try:
+            yield
+        except BaseException as error:
+            try:
+                if isinstance(error, KeyboardInterrupt):
+                    self.connection.commit()
+                else:
+                    self.connection.rollback()
+            except Exception:
+                self.connection.rollback()
+                logging.getLogger(__name__).exception("batch_cleanup_failed")
+            raise
+        else:
+            try:
+                self.connection.commit()
+            except BaseException:
+                self.connection.rollback()
+                raise
+        finally:
+            self._batch_size = 1
+            self._pending_writes = 0
+
+    @contextmanager
+    def _result_write(self):
+        try:
+            yield
+            self._pending_writes += 1
+            if self._pending_writes >= self._batch_size:
+                self.connection.commit()
+                self._pending_writes = 0
+        except BaseException:
+            self.connection.rollback()
+            self._pending_writes = 0
+            raise
+
     def save_success(self, url: str, result: dict) -> None:
         payload = json.dumps(result, ensure_ascii=False)
-        with self.connection:
+        with self._result_write():
             cursor = self.connection.execute(
                 """UPDATE courses SET status='succeeded', result=?, error=NULL,
                    attempts=attempts+1, updated_at=CURRENT_TIMESTAMP WHERE url=?""",
@@ -204,7 +249,7 @@ class CrawlStore:
                 raise ValueError("Cannot save an unknown course URL.")
 
     def save_failure(self, url: str, error: str) -> None:
-        with self.connection:
+        with self._result_write():
             cursor = self.connection.execute(
                 """UPDATE courses SET status='failed', result=NULL, error=?,
                    attempts=attempts+1, updated_at=CURRENT_TIMESTAMP WHERE url=?""",

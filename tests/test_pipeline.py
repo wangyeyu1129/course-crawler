@@ -337,3 +337,66 @@ os._exit(9)
                 self.assertIn("courses_status", plan)
                 self.assertNotIn("SCAN courses", plan)
                 self.assertNotIn("TEMP B-TREE", plan)
+
+    def test_optional_batch_commit_boundaries_and_tail(self):
+        import sqlite3
+
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls)
+            observer = sqlite3.connect(self.database)
+            self.addCleanup(observer.close)
+
+            def count():
+                return observer.execute(
+                    "SELECT COUNT(*) FROM courses WHERE status='succeeded'"
+                ).fetchone()[0]
+
+            with store.batch_writes(2):
+                store.save_success(self.urls[0], {"url": self.urls[0]})
+                self.assertEqual(count(), 0)
+                store.save_success(self.urls[1], {"url": self.urls[1]})
+                self.assertEqual(count(), 2)
+                store.save_success(self.urls[2], {"url": self.urls[2]})
+                self.assertEqual(count(), 2)
+            self.assertEqual(count(), 3)
+
+    def test_batch_error_rolls_back_only_uncommitted_results(self):
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls)
+            with self.assertRaises(RuntimeError):
+                with store.batch_writes(2):
+                    for url in self.urls:
+                        store.save_success(url, {"url": url})
+                    raise RuntimeError("fatal")
+            self.assertEqual(
+                store.counts(), {"pending": 1, "failed": 0, "succeeded": 2}
+            )
+            with self.assertRaises(KeyboardInterrupt):
+                with store.batch_writes(5):
+                    store.save_success(self.urls[2], {"url": self.urls[2]})
+                    raise KeyboardInterrupt()
+            self.assertEqual(store.counts()["succeeded"], 3)
+
+    def test_batch_configuration_and_hard_crash_recovery(self):
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls[:1])
+            for size in [0, -1, True, 1.5]:
+                with self.subTest(size=size), self.assertRaises(ValueError):
+                    with store.batch_writes(size):
+                        pass
+        script = """
+import os,sys
+from pathlib import Path
+from crawler.storage import CrawlStore
+with CrawlStore(Path(sys.argv[1])) as store:
+ with store.batch_writes(5):
+  store.save_success(sys.argv[2],{'url':sys.argv[2]})
+  os._exit(9)
+"""
+        process = subprocess.run(
+            [sys.executable, "-c", script, str(self.database), self.urls[0]],
+            capture_output=True,
+        )
+        self.assertEqual(process.returncode, 9)
+        with CrawlStore(self.database) as store:
+            self.assertEqual(store.counts()["pending"], 1)

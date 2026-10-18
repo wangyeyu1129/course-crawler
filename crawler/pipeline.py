@@ -24,6 +24,7 @@ def crawl_courses(
     parse_course: Callable[[str], dict] = parse_course_page,
     limit=None,
     retry_failed: bool = False,
+    commit_batch_size: int = 1,
 ) -> CrawlSummary:
     """Process each unfinished URL at most once per run, isolating page failures.
 
@@ -31,7 +32,10 @@ def crawl_courses(
     as a successful page would make recovery unreliable.
     """
     succeeded = failed = 0
-    with store.work_queue(limit, retry_failed=retry_failed) as queue:
+    with (
+        store.work_queue(limit, retry_failed=retry_failed) as queue,
+        store.batch_writes(commit_batch_size),
+    ):
         for index, url in enumerate(queue.urls, 1):
             stage = "fetch"
             try:

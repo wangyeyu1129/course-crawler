@@ -66,6 +66,7 @@ def run_crawl(
     limit: Optional[int] = None,
     max_count_drop: float = 0.1,
     retry_failed: bool = False,
+    commit_batch_size: int = 1,
 ) -> dict:
     """Discover once, resume persisted tasks, and export committed results.
 
@@ -74,6 +75,8 @@ def run_crawl(
     """
     if limit is not None and (type(limit) is not int or limit < 1):
         raise ValueError("limit must be a positive integer.")
+    if type(commit_batch_size) is not int or commit_batch_size < 1:
+        raise ValueError("commit_batch_size must be a positive integer.")
     validate_count_drop(max_count_drop)
     paths = [Path(path).resolve() for path in (database, output, log_file)]
     if url_file is not None:
@@ -109,7 +112,11 @@ def run_crawl(
                     )
                 try:
                     summary = crawl_courses(
-                        store, client.get_text, limit=limit, retry_failed=retry_failed
+                        store,
+                        client.get_text,
+                        limit=limit,
+                        retry_failed=retry_failed,
+                        commit_batch_size=commit_batch_size,
                     )
                 except BaseException:
                     # Best-effort export must not replace the task's failure or interrupt.
