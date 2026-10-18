@@ -3,8 +3,8 @@
 import sqlite3
 import threading
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
+from crawler.durability import durable_mkdir, temporary_file
 from crawler.migrations import execute_script, migrate_database
 from crawler.run_records import utc_now
 from crawler.snapshots import archive_file, file_digest
@@ -14,7 +14,7 @@ from crawler.urls import normalize_course_url
 class RawArchive:
     def __init__(self, directory: Path):
         self.directory = Path(directory)
-        self.directory.mkdir(parents=True, exist_ok=True)
+        durable_mkdir(self.directory)
         self._lock = threading.RLock()
         self.connection = sqlite3.connect(
             self.directory / "index.sqlite3", check_same_thread=False
@@ -46,17 +46,9 @@ class RawArchive:
             raise ValueError(
                 "Raw input must have a canonical course URL and HTML text."
             )
-        temporary = None
-        try:
-            with NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=self.directory,
-                prefix=".raw-",
-                delete=False,
-            ) as handle:
-                temporary = Path(handle.name)
-                handle.write(html)
+        with temporary_file(self.directory, text=True) as (handle, temporary):
+            handle.write(html)
+            handle.flush()
             target = archive_file(temporary, self.directory / "html", suffix=".html")
             with self._lock, self.connection:
                 self.connection.execute(
@@ -64,9 +56,6 @@ class RawArchive:
                     (url, target.stem, run_id, utc_now()),
                 )
             return target
-        finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
 
     def latest(self, url: str) -> str:
         with self._lock:

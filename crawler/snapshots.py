@@ -3,7 +3,8 @@
 import hashlib
 import os
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+
+from crawler.durability import durable_mkdir, sync_directory, temporary_file
 
 CHUNK_SIZE = 64 * 1024
 
@@ -38,7 +39,7 @@ def archive_file(source: Path, directory: Path, *, suffix: str = ".json") -> Pat
     source = Path(source)
     digest = file_digest(source)
     directory = Path(directory)
-    directory.mkdir(parents=True, exist_ok=True)
+    durable_mkdir(directory)
     target = directory / f"{digest}{suffix}"
 
     def verify_existing() -> Path:
@@ -48,26 +49,19 @@ def archive_file(source: Path, directory: Path, *, suffix: str = ".json") -> Pat
 
     if target.exists():
         return verify_existing()
-    temporary = None
-    try:
-        with NamedTemporaryFile(
-            dir=directory, prefix=".snapshot-", delete=False
-        ) as handle:
-            temporary = Path(handle.name)
-            copied = hashlib.sha256()
-            with source.open("rb") as stream:
-                for chunk in iter(lambda: stream.read(CHUNK_SIZE), b""):
-                    handle.write(chunk)
-                    copied.update(chunk)
-            if copied.hexdigest() != digest:
-                raise OSError("Source changed during snapshot creation.")
-            handle.flush()
-            os.fsync(handle.fileno())
+    with temporary_file(directory) as (handle, temporary):
+        copied = hashlib.sha256()
+        with source.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(CHUNK_SIZE), b""):
+                handle.write(chunk)
+                copied.update(chunk)
+        if copied.hexdigest() != digest:
+            raise OSError("Source changed during snapshot creation.")
+        handle.flush()
+        os.fsync(handle.fileno())
         try:
             os.link(temporary, target)
         except FileExistsError:
             return verify_existing()
+        sync_directory(directory)
         return target
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)

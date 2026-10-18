@@ -12,8 +12,8 @@ import os
 import re
 import shutil
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
+from crawler.durability import sync_directory, temporary_file
 from crawler.runner import crawl_lock
 from crawler.snapshots import CHUNK_SIZE, file_digest
 
@@ -50,30 +50,22 @@ def maintain_history(output: Path, *, keep: int = 20, apply: bool = False) -> li
                 raise OSError(f"Corrupt snapshot: {path}")
             backup = path.with_suffix(".json.gz")
             if not backup.exists():
-                temporary = None
-                try:
-                    with NamedTemporaryFile(
-                        dir=directory, prefix=".backup-", delete=False
-                    ) as handle:
-                        temporary = Path(handle.name)
-                        with (
-                            path.open("rb") as source,
-                            gzip.GzipFile(
-                                fileobj=handle, mode="wb", mtime=0
-                            ) as compressed,
-                        ):
-                            shutil.copyfileobj(source, compressed, CHUNK_SIZE)
-                        handle.flush()
-                        os.fsync(handle.fileno())
+                with temporary_file(directory) as (handle, temporary):
+                    with (
+                        path.open("rb") as source,
+                        gzip.GzipFile(fileobj=handle, mode="wb", mtime=0) as compressed,
+                    ):
+                        shutil.copyfileobj(source, compressed, CHUNK_SIZE)
+                    handle.flush()
+                    os.fsync(handle.fileno())
                     if gzip_digest(temporary) != path.stem:
                         raise OSError("Compressed backup verification failed.")
                     os.replace(temporary, backup)
-                finally:
-                    if temporary is not None:
-                        temporary.unlink(missing_ok=True)
+                    sync_directory(directory)
             if backup.is_symlink() or gzip_digest(backup) != path.stem:
                 raise OSError(f"Invalid backup: {backup}")
             path.unlink()
+            sync_directory(directory)
         return [str(p) for p in selected]
 
 

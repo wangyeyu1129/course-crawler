@@ -7,9 +7,9 @@ import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Callable, Iterable, Iterator, Optional, TextIO
 
+from crawler.durability import durable_mkdir, sync_directory, temporary_file
 from crawler.migrations import migrate_courses
 from crawler.models import Course, validate_course
 from crawler.snapshots import archive_file, file_digest
@@ -21,21 +21,12 @@ def _publish_json(
 ) -> Optional[Path]:
     """Publish JSON atomically, optionally archiving old and new bytes first."""
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = None
-    try:
-        with NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            delete=False,
-        ) as handle:
-            temporary = Path(handle.name)
-            writer(handle)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+    durable_mkdir(path.parent)
+    with temporary_file(path.parent, text=True) as (handle, temporary):
+        writer(handle)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
         snapshot = None
         if preserve_history:
             directory = path.parent / "history" / path.stem
@@ -43,10 +34,8 @@ def _publish_json(
                 archive_file(path, directory)
             snapshot = archive_file(temporary, directory)
         os.replace(temporary, path)
+        sync_directory(path.parent)
         return snapshot
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
 
 
 def write_json_atomic(
