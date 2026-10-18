@@ -95,3 +95,21 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, 2)
         client.assert_not_called()
         crawl.assert_not_called()
+
+    @patch(
+        "main.discover_course_urls", return_value=deque(["https://example.test/course"])
+    )
+    def test_file_output_does_not_build_an_unused_json_string(self, discover):
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "queue.json"
+            with (
+                patch("sys.argv", ["main.py", "--discover", "--output", str(output)]),
+                patch(
+                    "main.json.dumps",
+                    side_effect=AssertionError("unused serialization"),
+                ),
+            ):
+                self.assertEqual(main(), 0)
+            self.assertEqual(
+                json.loads(output.read_text()), list(discover.return_value)
+            )

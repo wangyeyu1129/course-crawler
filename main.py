@@ -88,11 +88,10 @@ def main() -> int:
             )
     else:
         result = parse_course_page(fetch_course_page(args.course_code, policy=policy))
-    payload = json.dumps(result, indent=2)
     if args.output:
         write_json_atomic(args.output, result)
     else:
-        print(payload)
+        print(json.dumps(result, indent=2))
     return 0
 
 
