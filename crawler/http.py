@@ -91,11 +91,17 @@ class HttpClient:
                     url,
                     headers={"User-Agent": self.policy.user_agent},
                     timeout=(self.policy.connect_timeout, self.policy.read_timeout),
+                    allow_redirects=False,
                 )
                 try:
                     retry_after = self._retry_after(
                         response.headers.get("Retry-After", "")
                     )
+                    if 300 <= response.status_code < 400:
+                        raise requests.HTTPError(
+                            f"Redirect response {response.status_code} refused for {url}.",
+                            response=response,
+                        )
                     response.raise_for_status()
                     return response.text
                 finally:

@@ -59,7 +59,10 @@ class HttpTests(unittest.TestCase):
             client.get_text("url")
         self.assertEqual(clock.sleeps, [2])
         session.get.assert_called_with(
-            "url", headers={"User-Agent": HttpPolicy().user_agent}, timeout=(10.0, 30.0)
+            "url",
+            headers={"User-Agent": HttpPolicy().user_agent},
+            timeout=(10.0, 30.0),
+            allow_redirects=False,
         )
         session.close.assert_not_called()
 
@@ -172,3 +175,35 @@ class HttpTests(unittest.TestCase):
             client.get_text("url")
         self.assertEqual(session.get.call_count, 1)
         self.assertEqual(clock.sleeps, [])
+
+    def test_redirects_are_rejected_without_following_or_retry(self):
+        for status in [300, 301, 302, 303, 304, 305, 307, 308]:
+            for location in [
+                "/course/csc148h5",
+                "https://evil.test/course",
+                "http://utm.calendar.utoronto.ca/course/csc148h5",
+            ]:
+                with self.subTest(status=status, location=location):
+                    redirected = response(status)
+                    redirected.headers["Location"] = location
+                    client, session, clock = self.client([redirected, response()])
+                    with patch.object(
+                        redirected, "close", wraps=redirected.close
+                    ) as close:
+                        with self.assertRaises(requests.HTTPError) as caught:
+                            client.get_text(
+                                "https://utm.calendar.utoronto.ca/course/csc148h5"
+                            )
+                        close.assert_called_once()
+                    self.assertIs(caught.exception.response, redirected)
+                    self.assertEqual(session.get.call_count, 1)
+                    self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
+                    self.assertEqual(clock.sleeps, [])
+
+    def test_rejected_redirect_still_spaces_next_request(self):
+        client, session, clock = self.client([response(302), response()], interval=2)
+        with self.assertRaises(requests.HTTPError):
+            client.get_text("first")
+        self.assertEqual(client.get_text("second"), "html")
+        self.assertEqual(clock.sleeps, [2])
+        self.assertEqual(session.get.call_count, 2)
