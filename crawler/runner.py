@@ -16,7 +16,7 @@ from crawler.discovery import (
 )
 from crawler.http import HttpClient, HttpPolicy
 from crawler.http_cache import HttpCache
-from crawler.pipeline import crawl_courses
+from crawler.pipeline import CrawlSummary, crawl_courses
 from crawler.storage import CrawlStore
 
 
@@ -71,12 +71,23 @@ def run_crawl(
     workers: int = 1,
     refresh: bool = False,
     http_cache: Optional[Path] = None,
+    operation: str = "resume",
 ) -> dict:
     """Discover once, resume persisted tasks, and export committed results.
 
     An explicit URL file can add tasks without re-fetching the search catalog.
     Interruptions still export previously committed results before propagating.
     """
+    if operation not in {"resume", "discover", "refresh"}:
+        raise ValueError("Unknown crawl operation.")
+    if refresh:
+        if operation != "resume":
+            raise ValueError("refresh cannot be combined with an explicit operation.")
+        operation = "refresh"
+    if operation == "refresh" and url_file is not None:
+        raise ValueError(
+            "Refresh uses the known queue; import URLs with resume/discover first."
+        )
     if limit is not None and (type(limit) is not int or limit < 1):
         raise ValueError("limit must be a positive integer.")
     if type(commit_batch_size) is not int or commit_batch_size < 1:
@@ -103,6 +114,10 @@ def run_crawl(
                 HttpCache(cache_path) as cache,
                 HttpClient(policy, cache=cache) as client,
             ):
+                if operation == "refresh" and not sum(store.counts().values()):
+                    raise ValueError(
+                        "No known courses to refresh; discover courses first."
+                    )
                 if url_file is not None:
                     urls = json.loads(Path(url_file).read_text(encoding="utf-8"))
                     if (
@@ -114,7 +129,9 @@ def run_crawl(
                             "URL file must contain a nonempty JSON array of URLs."
                         )
                     store.enqueue(urls)
-                elif refresh or not sum(store.counts().values()):
+                elif operation == "discover" or (
+                    operation == "resume" and not sum(store.counts().values())
+                ):
                     logger.info("discovery_started")
                     store.enqueue(
                         discover_course_urls(
@@ -127,16 +144,20 @@ def run_crawl(
                     logger.info(
                         "discovery_completed queued=%s", sum(store.counts().values())
                     )
-                if refresh:
+                if operation == "refresh":
                     store.schedule_refresh()
                 try:
-                    summary = crawl_courses(
-                        store,
-                        client.get_text,
-                        limit=limit,
-                        retry_failed=retry_failed,
-                        commit_batch_size=commit_batch_size,
-                        workers=workers,
+                    summary = (
+                        CrawlSummary(0, 0, 0)
+                        if operation == "discover"
+                        else crawl_courses(
+                            store,
+                            client.get_text,
+                            limit=limit,
+                            retry_failed=retry_failed,
+                            commit_batch_size=commit_batch_size,
+                            workers=workers,
+                        )
                     )
                 except BaseException:
                     # Best-effort export must not replace the task's failure or interrupt.

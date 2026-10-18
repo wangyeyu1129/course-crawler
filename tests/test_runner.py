@@ -166,9 +166,7 @@ class RunnerTests(unittest.TestCase):
 
     @patch("crawler.runner.HttpClient")
     @patch("crawler.runner.discover_course_urls")
-    def test_explicit_refresh_rediscovers_and_reparses_completed_courses(
-        self, discover, client_cls
-    ):
+    def test_explicit_refresh_only_reparses_known_courses(self, discover, client_cls):
         discover.return_value = self.urls[:1]
         html = (self.fixtures / "csc148h5.html").read_text()
         client = client_cls.return_value.__enter__.return_value
@@ -176,5 +174,23 @@ class RunnerTests(unittest.TestCase):
         run_crawl(**self.kwargs)
         result = run_crawl(**self.kwargs, refresh=True)
         self.assertEqual(result["run"]["processed"], 1)
-        self.assertEqual(discover.call_count, 2)
+        self.assertEqual(discover.call_count, 1)
         self.assertEqual(client.get_text.call_count, 2)
+
+    @patch("crawler.runner.HttpClient")
+    @patch("crawler.runner.discover_course_urls")
+    def test_discovery_operation_only_adds_new_tasks(self, discover, client_cls):
+        with CrawlStore(self.kwargs["database"]) as store:
+            store.enqueue(self.urls[:1])
+            store.save_success(self.urls[0], {"url": self.urls[0]})
+        discover.return_value = self.urls
+        result = run_crawl(**self.kwargs, operation="discover")
+        self.assertEqual(result["run"]["processed"], 0)
+        self.assertEqual(result["queue"], {"pending": 1, "succeeded": 1, "failed": 0})
+        client_cls.return_value.__enter__.return_value.get_text.assert_not_called()
+
+    @patch("crawler.runner.HttpClient")
+    def test_refresh_empty_queue_is_rejected(self, client):
+        with self.assertRaisesRegex(ValueError, "No known courses"):
+            run_crawl(**self.kwargs, operation="refresh")
+        client.return_value.__enter__.return_value.get_text.assert_not_called()

@@ -41,6 +41,9 @@ def main() -> int:
         help="Retry failed courses after pending courses.",
     )
     parser.add_argument("--refresh", action="store_true")
+    parser.add_argument(
+        "--operation", choices=["resume", "discover", "refresh"], default="resume"
+    )
     parser.add_argument("--http-cache", type=Path)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--commit-batch-size", type=int, default=1)
@@ -83,6 +86,7 @@ def main() -> int:
             commit_batch_size=args.commit_batch_size,
             workers=args.workers,
             refresh=args.refresh,
+            operation=args.operation,
             http_cache=args.http_cache,
             policy=policy,
         )
