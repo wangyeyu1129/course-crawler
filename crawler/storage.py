@@ -5,14 +5,14 @@ import os
 import sqlite3
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional, TextIO
 
 from crawler.snapshots import archive_file
 from crawler.urls import normalize_course_url
 
 
-def write_json_atomic(
-    path: Path, value, *, preserve_history: bool = False
+def _publish_json(
+    path: Path, writer: Callable[[TextIO], None], *, preserve_history: bool = False
 ) -> Optional[Path]:
     """Publish JSON atomically, optionally archiving old and new bytes first."""
     path = Path(path)
@@ -27,7 +27,7 @@ def write_json_atomic(
             delete=False,
         ) as handle:
             temporary = Path(handle.name)
-            json.dump(value, handle, ensure_ascii=False, indent=2)
+            writer(handle)
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -42,6 +42,33 @@ def write_json_atomic(
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+
+def write_json_atomic(
+    path: Path, value, *, preserve_history: bool = False
+) -> Optional[Path]:
+    return _publish_json(
+        path,
+        lambda handle: json.dump(value, handle, ensure_ascii=False, indent=2),
+        preserve_history=preserve_history,
+    )
+
+
+def write_json_array_atomic(
+    path: Path, values: Iterable, *, preserve_history: bool = False
+) -> Optional[Path]:
+    """Stream an iterable with the same bytes as json.dumps(list, indent=2)."""
+
+    def write(handle: TextIO) -> None:
+        first = True
+        for value in values:
+            handle.write("[\n" if first else ",\n")
+            encoded = json.dumps(value, ensure_ascii=False, indent=2)
+            handle.write("  " + encoded.replace("\n", "\n  "))
+            first = False
+        handle.write("[]" if first else "\n]")
+
+    return _publish_json(path, write, preserve_history=preserve_history)
 
 
 class CrawlStore:
@@ -135,12 +162,12 @@ class CrawlStore:
         return counts
 
     def export(self, path: Path) -> Path:
-        courses = [
+        courses = (
             json.loads(row[0])
             for row in self.connection.execute(
                 "SELECT result FROM courses WHERE status='succeeded' ORDER BY url"
             )
-        ]
-        snapshot = write_json_atomic(path, courses, preserve_history=True)
+        )
+        snapshot = write_json_array_atomic(path, courses, preserve_history=True)
         assert snapshot is not None
         return snapshot

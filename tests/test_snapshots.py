@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from crawler.snapshots import archive_file
-from crawler.storage import write_json_atomic
+from crawler.storage import write_json_array_atomic, write_json_atomic
 
 
 class SnapshotTests(unittest.TestCase):
@@ -117,5 +117,31 @@ class SnapshotTests(unittest.TestCase):
         previous = self.output.read_bytes()
         with self.assertRaises(TypeError):
             write_json_atomic(self.output, [object()], preserve_history=True)
+        self.assertEqual(self.output.read_bytes(), previous)
+        self.assertFalse((self.output.parent / "history").exists())
+
+    def test_streaming_array_is_byte_compatible(self):
+        for values in [
+            [],
+            [{}],
+            [{"text": "课程", "optional": None}, {"nested": [1, {"line": "a\nb"}]}],
+        ]:
+            with self.subTest(values=values):
+                write_json_array_atomic(self.output, iter(values))
+                self.assertEqual(
+                    self.output.read_text(),
+                    json.dumps(values, ensure_ascii=False, indent=2) + "\n",
+                )
+
+    def test_stream_failure_preserves_existing_export(self):
+        write_json_atomic(self.output, ["old"])
+        previous = self.output.read_bytes()
+
+        def values():
+            yield {"valid": True}
+            raise RuntimeError("cursor failed")
+
+        with self.assertRaises(RuntimeError):
+            write_json_array_atomic(self.output, values(), preserve_history=True)
         self.assertEqual(self.output.read_bytes(), previous)
         self.assertFalse((self.output.parent / "history").exists())
