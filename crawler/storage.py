@@ -13,8 +13,10 @@ from crawler.durability import durable_mkdir, sync_directory, temporary_file
 from crawler.migrations import migrate_courses
 from crawler.snapshots import archive_file, file_digest
 from crawler.urls import normalize_course_url
-from crawler.validation import validate_utm_course as validate_course
-from domain.course import Course
+from crawler.validation import validate_utm_course_model as validate_course
+from domain.course import Course, validate_course_model
+
+EXPORT_FORMAT_VERSION = 2
 
 
 def _publish_json(
@@ -192,9 +194,7 @@ class CrawlStore:
             raise
 
     def save_success(self, url: str, result: Course) -> None:
-        payload = json.dumps(
-            validate_course(result, expected_url=url), ensure_ascii=False
-        )
+        payload = validate_course(result, expected_url=url).model_dump_json()
         with self._result_write():
             cursor = self.connection.execute(
                 """UPDATE courses SET status='succeeded', result=?, error=NULL,
@@ -237,8 +237,8 @@ class CrawlStore:
             "SELECT revision FROM dataset_version WHERE id=1"
         ).fetchone()[0]
         cached = self.connection.execute(
-            "SELECT * FROM export_cache WHERE path=? AND format_version=1",
-            (str(path.resolve()),),
+            "SELECT * FROM export_cache WHERE path=? AND format_version=?",
+            (str(path.resolve()), EXPORT_FORMAT_VERSION),
         ).fetchone()
         if (
             cached is not None
@@ -256,7 +256,7 @@ class CrawlStore:
                 snapshot = archive_file(path, snapshot.parent)
             return snapshot
         courses = (
-            json.loads(row[0])
+            validate_course_model(json.loads(row[0])).to_legacy_dict()
             for row in self.connection.execute(
                 "SELECT result FROM courses WHERE result IS NOT NULL ORDER BY url"
             )
@@ -265,7 +265,7 @@ class CrawlStore:
         assert snapshot is not None
         with self.connection:
             self.connection.execute(
-                "INSERT OR REPLACE INTO export_cache VALUES (?,?,?,1)",
-                (str(path.resolve()), revision, snapshot.stem),
+                "INSERT OR REPLACE INTO export_cache VALUES (?,?,?,?)",
+                (str(path.resolve()), revision, snapshot.stem, EXPORT_FORMAT_VERSION),
             )
         return snapshot

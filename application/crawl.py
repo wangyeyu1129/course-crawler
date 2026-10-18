@@ -1,5 +1,6 @@
 """Application service joining discovery, fetching, parsing and persistence."""
 
+import json
 import logging
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Optional
@@ -7,7 +8,7 @@ from typing import Optional
 from application.models import CrawlSummary, PageOutcome
 from application.policies import validate_worker_count
 from application.ports import CourseParser, CourseStore, CourseValidator, PageFetcher
-from domain.course import validate_course
+from domain.course import CourseFieldError, validate_course_model
 
 LOGGER = logging.getLogger(__name__)
 
@@ -21,7 +22,18 @@ def _process_page(url, fetch_page, parse_course, validator, logger) -> PageOutco
         return PageOutcome(url, result=result)
     except Exception as error:
         logger.exception("course_failed url=%s stage=%s", url, stage)
-        return PageOutcome(url, error=f"{stage}: {type(error).__name__}: {error}")
+        if isinstance(error, CourseFieldError):
+            detail = json.dumps(
+                {
+                    "stage": stage,
+                    "type": type(error).__name__,
+                    "field_states": error.field_states,
+                },
+                ensure_ascii=False,
+            )
+        else:
+            detail = f"{stage}: {type(error).__name__}: {error}"
+        return PageOutcome(url, error=detail)
 
 
 def _outcomes(urls, fetch_page, parse_course, workers, validator, logger):
@@ -62,7 +74,7 @@ def crawl_courses(
     fetch_page: PageFetcher,
     *,
     parse_course: CourseParser,
-    validator: CourseValidator = validate_course,
+    validator: CourseValidator = validate_course_model,
     logger: Optional[logging.Logger] = None,
     limit: Optional[int] = None,
     retry_failed: bool = False,

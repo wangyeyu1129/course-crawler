@@ -30,10 +30,11 @@ crawler 暂时仍承载来源适配和采集基础设施，以保持现有接口
 
 ## 共享契约与来源规则
 
-`domain.course.Course` 是唯一的课程类型定义，保持当前 12 字段和 JSON 兼容。
-`domain.course.validate_course()` 检查字段形状、文本类型、必填值、待处理 URL 一致性，返回副本。
+`domain.course.Course` 是统一 Pydantic 模型，包含课程值及字段观察状态；12 字段 JSON 作为兼容投影。
+`domain.course.validate_course_model()` 检查字段、状态和值的一致性、待处理 URL，并拒绝解析失败；
+旧 `validate_course()` 经过相同校验后返回投影字典。
 该函数不判断 UTM 域名、代码后缀或校区；来源身份由适配器负责。
-当前形状仍是 TypedDict 加运行时校验；本任务没有引入 Pydantic 或扩展课程字段。
+Pydantic 是模型校验依赖，不负责网络或数据库；状态约定见 [统一课程模型](course-model.md)。
 
 `crawler.validation.validate_utm_course()` 在共享校验之后执行 UTM 校区、课程代码、URL 的严格身份校验。
 UTM 域名、标签和代码模式属于适配器规则，继续集中于 crawler 的对应模块。
@@ -49,7 +50,7 @@ UTM 域名、标签和代码模式属于适配器规则，继续集中于 crawle
 - CourseStore：队列上下文、批量事务上下文、保存成功、保存失败四个能力。
 - PageFetcher：URL 到 HTML 的函数。
 - CourseParser：HTML 到待校验对象的函数，必须由调用方指定。
-- CourseValidator：对象及 expected_url 到已校验 Course 的函数，默认共享校验。
+- CourseValidator：对象及 expected_url 到已校验 Pydantic Course 的函数，默认共享校验。
 - Logger：可选日志对象；适配层传入旧 logger，以保持运行日志兼容。
 
 CourseStore 使用 Protocol 描述结构，不要求适配器继承某个基类。

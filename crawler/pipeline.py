@@ -7,8 +7,8 @@ from application.crawl import crawl_courses as execute_crawl
 from application.models import CrawlSummary as CrawlSummary
 from application.models import PageOutcome as PageOutcome
 from application.ports import CourseStore, PageFetcher
-from crawler.utm_course import parse_course_page
-from crawler.validation import validate_utm_course
+from crawler.utm_course import parse_course_document
+from crawler.validation import validate_utm_course_model
 
 LOGGER = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ def crawl_courses(
     store: CourseStore,
     fetch_page: PageFetcher,
     *,
-    parse_course: Callable[[str], dict] = parse_course_page,
+    parse_course: Callable[[str], object] = parse_course_document,
     limit=None,
     retry_failed: bool = False,
     commit_batch_size: int = 1,
@@ -27,7 +27,7 @@ def crawl_courses(
         store,
         fetch_page,
         parse_course=parse_course,
-        validator=validate_utm_course,
+        validator=validate_utm_course_model,
         logger=LOGGER,
         limit=limit,
         retry_failed=retry_failed,

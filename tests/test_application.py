@@ -9,7 +9,7 @@ from course_factory import course_record
 
 from application.crawl import crawl_courses
 from application.models import WorkQueue
-from domain.course import validate_course
+from domain.course import validate_course_model
 
 
 class MemoryStore:
@@ -49,7 +49,7 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(
             (summary.processed, summary.succeeded, summary.failed), (1, 1, 0)
         )
-        self.assertEqual(store.saved[url]["campus"], "UTSG")
+        self.assertEqual(store.saved[url].campus, "UTSG")
         self.assertTrue(store.closed)
         parser.assert_called_once_with("html")
 
@@ -60,7 +60,7 @@ class ApplicationTests(unittest.TestCase):
         def source_validator(value, expected_url=None):
             if expected_url == urls[0]:
                 raise ValueError("source identity rejected")
-            return validate_course(value, expected_url)
+            return validate_course_model(value, expected_url)
 
         logger = logging.getLogger("test.application")
         with self.assertLogs(logger, level="ERROR"):

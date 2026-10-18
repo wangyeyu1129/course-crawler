@@ -20,6 +20,7 @@ def code_identity() -> dict:
         root / "urls.py",
         root / "validation.py",
         root.parent / "domain" / "course.py",
+        root.parent / "domain" / "field_state.py",
     )
     for path in sources:
         digest.update(path.relative_to(root.parent).as_posix().encode())

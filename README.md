@@ -96,7 +96,15 @@ delivery_mode, program_area, url
 
 课程标题、代码、Description 和 URL 必须有效。可选字段缺失或为空时为 `None`，
 JSON 中为 `null`；多值字段用 `; ` 连接。关系目前保存为原文，尚未解析 AND/OR。
-当前契约没有独立 corequisite、学分或学年字段，也没有记录可选字段为空的具体原因。
+当前课程值仍没有独立 corequisite、学分或学年字段。
+
+统一 Pydantic 模型 `domain.course.Course` 额外携带版本和字段状态：
+`present`、`empty`、`not_provided`、`parse_failed`、`unknown`。
+`parse_course_document(html)` 可读取带状态模型；`parse_course_page(html)` 保留 12 字段字典接口。
+新采集成功记录在 SQLite result 中保留完整状态；字段解析失败保存诊断并将课程标记失败。
+旧 null 只能视为 unknown，不能推断成来源未提供。课程 JSON 数组继续保留 12 字段投影，
+需要状态的使用方应读取完整模型或检查点，而非从投影中的 null 猜测。
+[统一模型与状态规则](docs/architecture/course-model.md) 说明入口、持久化和兼容行为。
 
 ```text
 data/
@@ -176,3 +184,5 @@ CI 在 push/PR 时运行 macOS/Linux × Python 3.11/3.12/3.13/3.14 共八组检�
 历史阶段报告保留当时的实施记录；当前运行方式以本 README 和 CLI 帮助为准。
 
 [T02 目录边界与共享模型报告](docs/reports/t02-module-boundaries.md) 记录本次迁移及兼容性验证。
+
+[T03 Pydantic 与字段状态报告](docs/reports/t03-course-model.md) 记录模型升级及数据兼容验证。

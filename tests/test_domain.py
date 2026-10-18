@@ -44,7 +44,11 @@ class DomainTests(unittest.TestCase):
 
         original = Path.read_bytes
         before = code_identity()["parser_version"]
-        for source in ("domain/course.py", "crawler/validation.py"):
+        for source in (
+            "domain/course.py",
+            "domain/field_state.py",
+            "crawler/validation.py",
+        ):
 
             def changed(path, target=source):
                 content = original(path)
