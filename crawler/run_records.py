@@ -18,7 +18,7 @@ def utc_now() -> str:
 def code_identity() -> dict:
     root = Path(__file__).resolve().parent
     digest = hashlib.sha256()
-    for name in ("utm_course.py", "fields.py", "urls.py"):
+    for name in ("utm_course.py", "fields.py", "urls.py", "models.py"):
         digest.update(name.encode())
         digest.update((root / name).read_bytes())
     try:
@@ -72,6 +72,9 @@ class RunRecord:
             with sqlite3.connect(
                 self.database.resolve().as_uri() + "?mode=ro", uri=True
             ) as connection:
+                self.data["database_schema_version"] = connection.execute(
+                    "PRAGMA user_version"
+                ).fetchone()[0]
                 counts = dict.fromkeys(("pending", "succeeded", "failed"), 0)
                 counts.update(
                     dict(

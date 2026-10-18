@@ -10,6 +10,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Callable, Iterable, Iterator, Optional, TextIO
 
+from crawler.migrations import migrate_courses
 from crawler.models import Course, validate_course
 from crawler.snapshots import archive_file, file_digest
 from crawler.urls import normalize_course_url
@@ -91,57 +92,11 @@ class CrawlStore:
         self.connection.row_factory = sqlite3.Row
         self._batch_size = 1
         self._pending_writes = 0
-        with self.connection:
-            self.connection.execute("""
-                CREATE TABLE IF NOT EXISTS courses (
-                    url TEXT PRIMARY KEY,
-                    status TEXT NOT NULL DEFAULT 'pending'
-                        CHECK (status IN ('pending', 'succeeded', 'failed')),
-                    attempts INTEGER NOT NULL DEFAULT 0,
-                    result TEXT,
-                    error TEXT,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    CHECK (status != 'succeeded' OR result IS NOT NULL)
-                )
-            """)
-
-            schema = self.connection.execute(
-                "SELECT sql FROM sqlite_master WHERE name='courses'"
-            ).fetchone()[0]
-            if "CHECK ((status = 'succeeded') = (result IS NOT NULL))" in schema:
-                self.connection.execute("""CREATE TABLE courses_updated (
-                    url TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'pending'
-                    CHECK(status IN ('pending','succeeded','failed')), attempts INTEGER NOT NULL DEFAULT 0,
-                    result TEXT,error TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    CHECK(status!='succeeded' OR result IS NOT NULL))""")
-                self.connection.execute(
-                    "INSERT INTO courses_updated(rowid,url,status,attempts,result,error,updated_at) SELECT rowid,url,status,attempts,result,error,updated_at FROM courses"
-                )
-                self.connection.execute("DROP TABLE courses")
-                self.connection.execute("ALTER TABLE courses_updated RENAME TO courses")
-            self.connection.executescript("""
-                CREATE INDEX IF NOT EXISTS courses_status ON courses(status);
-                CREATE TABLE IF NOT EXISTS dataset_version (
-                    id INTEGER PRIMARY KEY CHECK (id=1), revision INTEGER NOT NULL
-                );
-                INSERT OR IGNORE INTO dataset_version VALUES (1,0);
-                CREATE TABLE IF NOT EXISTS export_cache (
-                    path TEXT PRIMARY KEY, revision INTEGER NOT NULL,
-                    digest TEXT NOT NULL, format_version INTEGER NOT NULL
-                );
-                CREATE TRIGGER IF NOT EXISTS result_insert AFTER INSERT ON courses
-                WHEN NEW.result IS NOT NULL BEGIN
-                    UPDATE dataset_version SET revision=revision+1 WHERE id=1;
-                END;
-                CREATE TRIGGER IF NOT EXISTS result_update AFTER UPDATE OF result ON courses
-                WHEN OLD.result IS NOT NEW.result BEGIN
-                    UPDATE dataset_version SET revision=revision+1 WHERE id=1;
-                END;
-                CREATE TRIGGER IF NOT EXISTS result_delete AFTER DELETE ON courses
-                WHEN OLD.result IS NOT NULL BEGIN
-                    UPDATE dataset_version SET revision=revision+1 WHERE id=1;
-                END;
-            """)
+        try:
+            migrate_courses(self.connection)
+        except BaseException:
+            self.connection.close()
+            raise
 
     def __enter__(self):
         return self

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from crawler.migrations import migrate_database
+
 
 @dataclass(frozen=True)
 class CachedPage:
@@ -20,11 +22,18 @@ class HttpCache:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self.connection = sqlite3.connect(path, check_same_thread=False)
-        with self.connection:
-            self.connection.execute("""CREATE TABLE IF NOT EXISTS http_pages (
+
+        def schema(connection):
+            connection.execute("""CREATE TABLE IF NOT EXISTS http_pages (
                 url TEXT NOT NULL, variant TEXT NOT NULL, body TEXT NOT NULL,
                 digest TEXT NOT NULL, etag TEXT, last_modified TEXT,
                 PRIMARY KEY(url,variant))""")
+
+        try:
+            migrate_database(self.connection, (schema,), 0x48545450, {"http_pages"})
+        except BaseException:
+            self.connection.close()
+            raise
 
     def __enter__(self):
         return self

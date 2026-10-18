@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+from crawler.migrations import execute_script, migrate_database
 from crawler.run_records import utc_now
 from crawler.snapshots import archive_file, file_digest
 from crawler.urls import normalize_course_url
@@ -18,11 +19,21 @@ class RawArchive:
         self.connection = sqlite3.connect(
             self.directory / "index.sqlite3", check_same_thread=False
         )
-        with self.connection:
-            self.connection.executescript("""CREATE TABLE IF NOT EXISTS captures (
+
+        def schema(connection):
+            execute_script(
+                connection,
+                """CREATE TABLE IF NOT EXISTS captures (
                 id INTEGER PRIMARY KEY,url TEXT NOT NULL,digest TEXT NOT NULL,
                 run_id TEXT NOT NULL,captured_at TEXT NOT NULL);
-                CREATE INDEX IF NOT EXISTS captures_url ON captures(url,id);""")
+                CREATE INDEX IF NOT EXISTS captures_url ON captures(url,id);""",
+            )
+
+        try:
+            migrate_database(self.connection, (schema,), 0x52415748, {"captures"})
+        except BaseException:
+            self.connection.close()
+            raise
 
     def __enter__(self):
         return self
