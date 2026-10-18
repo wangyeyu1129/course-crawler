@@ -173,3 +173,6 @@ python main.py --crawl --workers 2
 - `--operation discover`：重新发现并加入新增 URL，不下载课程详情，不重置成功任务。
 - `--operation refresh`：只刷新已知队列，不重新发现目录；空队列需先发现。
 旧 `--refresh` 是 refresh 操作的兼容别名；它不再同时执行目录发现。
+
+每次采集的独立元数据保存到输出旁的 `runs/<输出名>/<run_id>.json`，
+记录 UTC 时间、Git revision、parser 源码哈希、操作、任务统计及课程快照哈希；课程 JSON 结构不变。

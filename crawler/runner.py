@@ -17,6 +17,7 @@ from crawler.discovery import (
 from crawler.http import HttpClient, HttpPolicy
 from crawler.http_cache import HttpCache
 from crawler.pipeline import CrawlSummary, crawl_courses
+from crawler.run_records import RunRecord
 from crawler.storage import CrawlStore
 
 
@@ -107,7 +108,11 @@ def run_crawl(
         paths.append(Path(url_file).resolve())
     if len(set(paths)) != len(paths):
         raise ValueError("Database, output, log and input files must be different.")
-    with crawl_lock(Path(database).resolve()), crawl_logging(Path(log_file)) as logger:
+    with (
+        crawl_lock(Path(database).resolve()),
+        crawl_logging(Path(log_file)) as logger,
+        RunRecord(database, output, operation) as record,
+    ):
         try:
             with (
                 CrawlStore(database) as store,
@@ -162,13 +167,17 @@ def run_crawl(
                 except BaseException:
                     # Best-effort export must not replace the task's failure or interrupt.
                     try:
-                        store.export(output)
+                        record.snapshot(store.export(output))
                     except Exception:
                         logger.exception("export_failed_during_abort")
                     raise
                 else:
                     snapshot = store.export(output)
+                    record.snapshot(snapshot)
+                record.data["run"] = asdict(summary)
                 result = {
+                    "run_id": record.run_id,
+                    "metadata": str(record.path),
                     "run": asdict(summary),
                     "queue": store.counts(),
                     "snapshot": str(snapshot),

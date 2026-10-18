@@ -194,3 +194,20 @@ class RunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "No known courses"):
             run_crawl(**self.kwargs, operation="refresh")
         client.return_value.__enter__.return_value.get_text.assert_not_called()
+
+    @patch("crawler.runner.HttpClient")
+    def test_run_metadata_records_identity_counts_and_snapshot(self, client):
+        with CrawlStore(self.kwargs["database"]) as store:
+            store.enqueue(self.urls[:1])
+            store.save_success(self.urls[0], {"url": self.urls[0]})
+        first = run_crawl(**self.kwargs)
+        second = run_crawl(**self.kwargs)
+        metadata = json.loads(Path(first["metadata"]).read_text())
+        self.assertEqual(metadata["run_id"], first["run_id"])
+        self.assertNotEqual(first["run_id"], second["run_id"])
+        self.assertTrue(metadata["complete"])
+        self.assertEqual(metadata["queue"]["succeeded"], 1)
+        self.assertEqual(metadata["snapshot_sha256"], Path(first["snapshot"]).stem)
+        self.assertEqual(len(metadata["parser_version"]), 64)
+        self.assertTrue(metadata["started_at"])
+        self.assertTrue(metadata["finished_at"])
