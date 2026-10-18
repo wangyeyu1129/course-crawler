@@ -50,11 +50,16 @@ def parse_course_page(html: str) -> dict[str, Optional[str]]:
         raise ValueError("Course title must contain a course code and name.")
     code, name = (part.strip() for part in parts)
     url = course_url(code)
+    description = get_description(soup)
+    if not description:
+        raise ValueError(
+            "Course description content not found; page may be incomplete."
+        )
     return {
         "code": code.upper(),
         "name": name,
         "campus": "UTM",
-        "description": get_description(soup),
+        "description": description,
         **{key: get_labeled_field(soup, label) for key, label in FIELD_LABELS.items()},
         "url": url,
     }

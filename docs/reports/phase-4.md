@@ -63,22 +63,3 @@ JSON 的格式变化也会产生新版本，这是保存精确历史字节的预
 | 应用回归 | 分批抓取后旧快照不变；完成后恢复复用同一快照 |
 
 本阶段未重新下载 2,491 门课程；直接从已验证的 SQLite 结果创建快照。
-
-## 范围说明与后续建议
-
-按用户给出的第一版格式，这里的 Raw Data 是**解析结果 JSON**。
-可以查看 parser 过去输出了什么，但不能据此离线重现 HTML 到字段的提取过程。
-如下一阶段需要同一网页分别运行旧、新 parser，应由 HTTP/持久化层增加原始 HTML 快照，
-parser 不应承担文件命名、归档或网络读取职责。
-
-快照包含所有已成功课程；分批运行和失败运行也能导出，不能仅凭文件存在判断全目录完成。
-历史副本有存储成本，目前按内容去重且不自动删除，适合第一版手工审查。
-已有 POSIX 平台约束沿用 Phase 3；没有新增依赖。
-
-## 工程参考
-
-重新检索 Google 工程实践，按变更内容、原因、设计权衡、验证和限制组织报告，非 Google 官方模板：
-
-- [Google：编写变更说明](https://google.github.io/eng-practices/review/developer/cl-descriptions.html)
-- [Google：审查设计、复杂度与测试](https://google.github.io/eng-practices/review/reviewer/looking-for.html)
-- [Python：os.link / os.replace](https://docs.python.org/3/library/os.html)

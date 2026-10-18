@@ -52,21 +52,3 @@
 官方首页和末页的标题与分页 DOM 分别保存于 `tests/fixtures/search-first.html`
 和 `tests/fixtures/search-last.html`，覆盖真实末页终止行为。
 来源：https://utm.calendar.utoronto.ca/course-search，抓取日期：2026-10-18。
-
-## 局限与后续分层
-
-队列是本次目录快照，不表示所有课程在某个学期实际开课。目录遍历期间若网站内容发生变化，
-跨页去重可以消除重复，但无法保证事务式快照。未来可增加抓取时间、校验指标与定期差异报告。
-当前不做自动重试或断点恢复：失败会明确报错，可重新执行，避免隐藏不完整目录。
-
-此模块属于采集层。建议下一阶段由应用服务消费队列，调用课程 parser，再交给存储层；
-API 与前端读取存储后的课程数据。不要由网页请求直接触发一次全站目录抓取。
-网页结构变化需更新解析器；缺失结果标题会失败。网站未来若删除分页标记，需更新协议适配与测试。
-
-## 工程报告依据
-
-重新检索并参考 Google 官方工程实践，记录修改内容、原因、复杂度权衡、边界测试与局限。
-本报告是项目记录，不是 Google 官方模板或认证。
-
-- [Writing good CL descriptions](https://google.github.io/eng-practices/review/developer/cl-descriptions.html)
-- [What to look for in a code review](https://google.github.io/eng-practices/review/reviewer/looking-for.html)

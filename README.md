@@ -124,3 +124,6 @@ data/
 快照内容标识不表示运行时间或 parser 版本；本版不增加元数据文件、自动清理或远程备份。
 
 [Phase 4 完成报告](docs/reports/phase-4.md)
+
+课程页面必须包含非空 Description；缺少正文视为不完整页面并记录失败。
+Prerequisites 等可选字段缺失时仍为 `None`。

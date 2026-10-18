@@ -42,22 +42,3 @@ ANT102 没有 prerequisite 字段；CSC108 有高中数学要求，不能当作�
 CSC108 的四种 delivery mode 全部保留；CSC207 的成绩、校区限制与 enrolment limits 保留。
 另对五门官方完整网页执行在线集成检查，全部输出与离线样本解析相等。
 `git diff --check` 通过。上述验证不是对所有未来 DOM 变化的保证。
-
-## 局限与后续架构
-
-网站结构变化可能需要更新 adapter 和 fixtures。当前文本规范化在链接边界插入空格，
-可能出现括号前后的多余空格；不改变条件文字，但不是浏览器排版的精确复制。
-本机 Python 3.9 链接 LibreSSL，urllib3 提示兼容性警告；本次网络测试通过，建议后续迁移到带现代 OpenSSL 的 Python。
-
-当前代码属于数据采集/外部数据适配层。前端展示、HTTP API、数据库写入和业务规则不应写入 DOM 提取器。
-建议后续按需求逐步增加：应用服务编排抓取和存储，领域模型表达课程结构，API 层提供查询，前端负责展示。
-当前尚未建设框架或前端；这个阶段的独立解析入口可以被后续应用服务直接调用。
-先修关系图尤其应另设业务解析器，避免把自然语言条件的推断混入 HTML 字段读取。
-
-## 报告依据
-
-本报告参考 Google 官方工程实践，组织为问题、变更原因、设计、测试证据与局限，
-是本项目的完成报告格式，并非 Google 官方报告模板或认证。
-
-- [Writing good CL descriptions](https://google.github.io/eng-practices/review/developer/cl-descriptions.html)：解释修改内容和原因，记录重要权衡。
-- [What to look for in a code review](https://google.github.io/eng-practices/review/reviewer/looking-for.html)：检查设计、复杂度、边界测试与文档。

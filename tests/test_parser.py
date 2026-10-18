@@ -154,12 +154,18 @@ class CourseTests(unittest.TestCase):
         self.assertEqual(course["name"], "Name • Detail")
         self.assertIsNone(course["prerequisites"])
 
-    def test_missing_description(self):
-        self.assertIsNone(
-            parse_course_page('<h1 class="page-title">CSC148H5 • Name</h1>')[
-                "description"
-            ]
-        )
+    def test_incomplete_course_body_is_rejected(self):
+        for body in [
+            "",
+            '<div class="field field--name-field-desc"></div>',
+            '<div class="field field--name-field-desc"><div class="field__item"> &nbsp; </div></div>',
+            '<div class="field"><label class="field__label">Prerequisites</label><div class="field__item">CSC108H5</div></div>',
+        ]:
+            with (
+                self.subTest(body=body),
+                self.assertRaisesRegex(ValueError, "description"),
+            ):
+                parse_course_page('<h1 class="page-title">CSC148H5 • Name</h1>' + body)
 
     def test_url_validation(self):
         self.assertEqual(

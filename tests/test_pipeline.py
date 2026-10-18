@@ -172,6 +172,20 @@ os._exit(9)
             with self.assertRaises(ValueError):
                 store.save_failure(self.urls[0], "error")
 
+    def test_title_only_page_fails_without_blocking_next_course(self):
+        fixture = (Path(__file__).parent / "fixtures/csc108h5.html").read_text()
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls[:2])
+            fetch = Mock(
+                side_effect=['<h1 class="page-title">CSC148H5 • Name</h1>', fixture]
+            )
+            with self.assertLogs("crawler.pipeline", level="ERROR"):
+                summary = crawl_courses(store, fetch)
+            self.assertEqual((summary.succeeded, summary.failed), (1, 1))
+            self.assertEqual(
+                store.counts(), {"pending": 0, "succeeded": 1, "failed": 1}
+            )
+
     def test_real_parser_pipeline(self):
         html = (Path(__file__).parent / "fixtures/csc148h5.html").read_text()
         with CrawlStore(self.database) as store:

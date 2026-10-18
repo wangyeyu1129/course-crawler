@@ -103,12 +103,3 @@ JSON 导出是成功课程集合；应结合统计中的 failed/pending 判断�
 下一阶段建议由 API 查询存储后的数据，前端只负责展示；任务调度和采集不应在用户查询请求中运行。
 
 本机 Python 3.9/LibreSSL 的既有 urllib3 兼容性警告仍存在；本次网络运行状态另列实测结果。
-
-## 参考依据
-
-报告按 Google 工程实践记录变更、原因、设计权衡、验证和局限，并参考官方 HTTP/事务文档：
-
-- [Google：代码审查关注点](https://google.github.io/eng-practices/review/reviewer/looking-for.html)
-- [Google：变更描述](https://google.github.io/eng-practices/review/developer/cl-descriptions.html)
-- [Requests：连接复用与 timeout](https://requests.readthedocs.io/en/stable/user/advanced/)
-- [SQLite：事务保证](https://www.sqlite.org/transactional.html)
