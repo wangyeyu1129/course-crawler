@@ -4,7 +4,8 @@ from typing import Optional
 
 from bs4 import BeautifulSoup
 
-from crawler.fields import field_value, get_labeled_field, normalized_text
+from crawler.fields import FieldIndex, field_value, normalized_text
+from crawler.fields import get_labeled_field as get_labeled_field
 from crawler.http import HttpClient, HttpPolicy
 from crawler.urls import BASE_URL as BASE_URL
 from crawler.urls import course_url
@@ -47,11 +48,12 @@ def parse_course_page(html: str) -> dict[str, Optional[str]]:
         raise ValueError(
             "Course description content not found; page may be incomplete."
         )
+    fields = FieldIndex(soup)
     return {
         "code": code.upper(),
         "name": name,
         "campus": "UTM",
         "description": description,
-        **{key: get_labeled_field(soup, label) for key, label in FIELD_LABELS.items()},
+        **{key: fields.get(label) for key, label in FIELD_LABELS.items()},
         "url": url,
     }

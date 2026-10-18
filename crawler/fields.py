@@ -36,18 +36,30 @@ def field_value(container: Tag) -> Optional[str]:
     return "; ".join(values) or None
 
 
-def get_labeled_field(soup: BeautifulSoup, field_name: str) -> Optional[str]:
-    """Match a complete label, ignoring case, whitespace and trailing colons.
+def _label_key(text: str) -> str:
+    return " ".join(text.split()).rstrip(":").strip().casefold()
 
-    Missing/empty fields return None. Multiple items retain document order and
-    are separated by semicolons. Values never come from neighboring fields.
-    """
-    target = " ".join(field_name.split()).rstrip(":").strip().casefold()
-    if not target:
-        raise ValueError("Field name must not be blank.")
-    for label in soup.select(".field__label"):
-        name = normalized_text(label).rstrip(":").strip().casefold()
-        if name == target:
+
+class FieldIndex:
+    """Index a page's labels once; preserve first-label and field ownership rules."""
+
+    def __init__(self, soup: BeautifulSoup) -> None:
+        self._containers: dict[str, Tag] = {}
+        for label in soup.select(".field__label"):
             container = label.find_parent(class_="field")
-            return field_value(container if container is not None else label.parent)
-    return None
+            self._containers.setdefault(
+                _label_key(normalized_text(label)),
+                container if container is not None else label.parent,
+            )
+
+    def get(self, field_name: str) -> Optional[str]:
+        key = _label_key(field_name)
+        if not key:
+            raise ValueError("Field name must not be blank.")
+        container = self._containers.get(key)
+        return field_value(container) if container is not None else None
+
+
+def get_labeled_field(soup: BeautifulSoup, field_name: str) -> Optional[str]:
+    """Read one field; use FieldIndex when extracting several fields per page."""
+    return FieldIndex(soup).get(field_name)

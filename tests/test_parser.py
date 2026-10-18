@@ -7,7 +7,7 @@ from unittest.mock import patch
 import requests
 from bs4 import BeautifulSoup
 
-from crawler.fields import get_labeled_field
+from crawler.fields import FieldIndex, get_labeled_field
 from crawler.utm_course import course_url, fetch_course_page, parse_course_page
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -78,6 +78,18 @@ class FieldTests(unittest.TestCase):
         self.assertIsNone(
             get_labeled_field(BeautifulSoup(html, "html.parser"), "Prerequisites")
         )
+
+    def test_index_scans_labels_once_and_preserves_first_match(self):
+        soup = BeautifulSoup(
+            '<div class="field"><label class="field__label"> Prerequisites: </label><div class="field__item">First</div></div><div class="field"><label class="field__label">Prerequisites</label><div class="field__item">Second</div></div>',
+            "html.parser",
+        )
+        with patch.object(soup, "select", wraps=soup.select) as select:
+            fields = FieldIndex(soup)
+            self.assertEqual(fields.get("prerequisites"), "First")
+            self.assertEqual(fields.get(" PREREQUISITES: "), "First")
+            self.assertIsNone(fields.get("missing"))
+            select.assert_called_once_with(".field__label")
 
     def test_blank_query(self):
         for label in ["", "  ", ":"]:
