@@ -61,6 +61,7 @@ def run_crawl(
     url_file: Optional[Path] = None,
     limit: Optional[int] = None,
     max_count_drop: float = 0.1,
+    retry_failed: bool = False,
 ) -> dict:
     """Discover once, resume persisted tasks, and export committed results.
 
@@ -102,7 +103,9 @@ def run_crawl(
                         "discovery_completed queued=%s", sum(store.counts().values())
                     )
                 try:
-                    summary = crawl_courses(store, client.get_text, limit=limit)
+                    summary = crawl_courses(
+                        store, client.get_text, limit=limit, retry_failed=retry_failed
+                    )
                 finally:
                     snapshot = store.export(output)
                 result = {

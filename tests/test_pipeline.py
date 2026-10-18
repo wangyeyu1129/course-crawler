@@ -58,7 +58,9 @@ class PipelineTests(unittest.TestCase):
         with CrawlStore(self.database) as store:
             store.enqueue(self.urls)
             fetch = Mock(return_value=self.urls[1])
-            crawl_courses(store, fetch, parse_course=lambda url: {"url": url})
+            crawl_courses(
+                store, fetch, parse_course=lambda url: {"url": url}, retry_failed=True
+            )
             fetch.assert_called_once_with(self.urls[1])
             row = store.connection.execute(
                 "SELECT * FROM courses WHERE url=?", (self.urls[1],)
@@ -96,7 +98,12 @@ class PipelineTests(unittest.TestCase):
             store.enqueue(self.urls)
             fetch = Mock(side_effect=[self.urls[0], KeyboardInterrupt()])
             with self.assertRaises(KeyboardInterrupt):
-                crawl_courses(store, fetch, parse_course=lambda url: {"url": url})
+                crawl_courses(
+                    store,
+                    fetch,
+                    parse_course=lambda url: {"url": url},
+                    retry_failed=True,
+                )
         with CrawlStore(self.database) as store:
             self.assertEqual(
                 store.counts(), {"pending": 2, "succeeded": 1, "failed": 0}
@@ -195,3 +202,31 @@ os._exit(9)
             course = json.loads((self.path / "courses.json").read_text())[0]
             self.assertEqual(course["code"], "CSC148H5")
             self.assertEqual(course["prerequisites"], "CSC108H5")
+
+    def test_pending_tasks_cannot_be_starved_by_failed_task(self):
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls)
+            store.save_failure(self.urls[0], "404")
+            for expected in self.urls[1:]:
+                self.assertEqual(store.work_urls(1, retry_failed=True), [expected])
+                crawl_courses(
+                    store,
+                    lambda url: url,
+                    parse_course=lambda url: {"url": url},
+                    limit=1,
+                    retry_failed=True,
+                )
+            self.assertEqual(store.work_urls(), [])
+            self.assertEqual(store.work_urls(retry_failed=True), [self.urls[0]])
+
+    def test_failed_tasks_require_explicit_retry_and_run_once(self):
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls[:1])
+            store.save_failure(self.urls[0], "404")
+            fetch = Mock(side_effect=requests.HTTPError("404"))
+            self.assertEqual(crawl_courses(store, fetch).processed, 0)
+            fetch.assert_not_called()
+            with self.assertLogs("crawler.pipeline", level="ERROR"):
+                summary = crawl_courses(store, fetch, retry_failed=True)
+            self.assertEqual((summary.processed, summary.failed), (1, 1))
+            fetch.assert_called_once_with(self.urls[0])

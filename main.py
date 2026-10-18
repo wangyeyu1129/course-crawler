@@ -31,6 +31,11 @@ def main() -> int:
     parser.add_argument(
         "--limit", type=int, help="Process at most this many unfinished URLs."
     )
+    parser.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="Retry failed courses after pending courses.",
+    )
     parser.add_argument("--max-count-drop", type=float, default=0.1)
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument(
@@ -56,6 +61,7 @@ def main() -> int:
             url_file=args.url_file,
             limit=args.limit,
             max_count_drop=args.max_count_drop,
+            retry_failed=args.retry_failed,
             policy=policy,
         )
         print(json.dumps(result, indent=2))

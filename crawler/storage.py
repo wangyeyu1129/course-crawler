@@ -86,13 +86,18 @@ class CrawlStore:
                 normalized,
             )
 
-    def work_urls(self, limit=None) -> list[str]:
+    def work_urls(self, limit=None, *, retry_failed: bool = False) -> list[str]:
         if limit is not None and (type(limit) is not int or limit < 1):
             raise ValueError("limit must be a positive integer.")
         # Snapshot prevents repeatedly selecting a failed URL in the same run.
         rows = self.connection.execute(
-            "SELECT url FROM courses WHERE status != 'succeeded' ORDER BY rowid LIMIT ?",
-            (-1 if limit is None else limit,),
+            """SELECT url FROM courses
+               WHERE status='pending' OR (? AND status='failed')
+               ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END, rowid LIMIT ?""",
+            (
+                retry_failed,
+                -1 if limit is None else limit,
+            ),
         )
         return [row["url"] for row in rows]
 
