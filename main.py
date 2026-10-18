@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+from crawler.cli_validation import parse_checked
 from crawler.discovery import (
     discover_course_urls,
     load_baseline_count,
@@ -17,7 +18,8 @@ from crawler.utm_course import fetch_course_page, parse_course_page
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Parse a UTM course or discover the course catalog."
+        description="Parse a UTM course or discover the course catalog.",
+        allow_abbrev=False,
     )
     parser.add_argument("course_code", nargs="?", default="CSC148H5")
     modes = parser.add_mutually_exclusive_group()
@@ -60,7 +62,7 @@ def main() -> int:
     )
     parser.add_argument("--user-agent", default=HttpPolicy().user_agent)
     parser.add_argument("--output", type=Path)
-    args = parser.parse_args()
+    args = parse_checked(parser)
     try:
         policy = HttpPolicy(
             user_agent=args.user_agent,

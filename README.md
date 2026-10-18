@@ -202,3 +202,9 @@ python main.py --crawl --operation reparse --raw-directory data/raw/utm_courses
 其余快照先压缩为同目录 `.json.gz` 并验证 SHA-256，再移除未压缩副本。
 运行元数据、原始 HTML、数据库不参与清理。压缩文件仍需用户按备份策略复制到独立存储；
 使用 gzip 解压可恢复原始快照字节。
+
+CLI 会拒绝不适用参数，包含显式输入的默认值；不接受选项名称缩写。
+单课程模式可输入课程代码；`--discover` 和 `--crawl` 不接受课程代码。
+`--crawl --operation discover` 只发现目录，不能传 `--limit` 等抓取参数；
+`--crawl --operation reparse` 完全离线，不能传网络参数或 URL 导入文件。
+旧 `--refresh` 继续有效，但不能与 `--operation` 同时使用。

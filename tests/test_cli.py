@@ -113,3 +113,41 @@ class CliTests(unittest.TestCase):
             self.assertEqual(
                 json.loads(output.read_text()), list(discover.return_value)
             )
+
+    @patch("main.run_crawl")
+    @patch("main.HttpClient")
+    @patch("main.fetch_course_page")
+    def test_inapplicable_options_fail_before_io(self, fetch, client, crawl):
+        cases = [
+            ["--limit", "1"],
+            ["--discover", "--workers", "1"],
+            ["--discover", "CSC148H5"],
+            ["--crawl", "CSC148H5"],
+            ["--crawl", "--operation", "discover", "--limit=1"],
+            ["--crawl", "--operation", "reparse", "--retries", "3"],
+            ["--crawl", "--operation", "reparse", "--url-file", "urls.json"],
+            ["--crawl", "--operation", "refresh", "--url-file", "urls.json"],
+            ["--crawl", "--operation", "resume", "--refresh"],
+            ["--crawl", "--wor", "2"],
+        ]
+        for args in cases:
+            with (
+                self.subTest(args=args),
+                patch("sys.argv", ["main.py", *args]),
+                redirect_stderr(StringIO()),
+            ):
+                with self.assertRaises(SystemExit) as caught:
+                    main()
+                self.assertEqual(caught.exception.code, 2)
+        fetch.assert_not_called()
+        client.assert_not_called()
+        crawl.assert_not_called()
+
+    @patch("main.run_crawl", return_value={"queue": {"failed": 0}})
+    def test_offline_and_legacy_refresh_are_accepted(self, crawl):
+        for args in [["--operation", "reparse"], ["--refresh"]]:
+            with (
+                patch("sys.argv", ["main.py", "--crawl", *args]),
+                redirect_stdout(StringIO()),
+            ):
+                self.assertEqual(main(), 0)
