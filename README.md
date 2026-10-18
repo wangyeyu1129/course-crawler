@@ -195,3 +195,10 @@ python main.py --crawl --operation reparse --raw-directory data/raw/utm_courses
 `.venv/bin/python -m pip install -r requirements-dev.txt` 安装固定版本及开发工具。
 不要通过屏蔽 TLS 警告继续使用 LibreSSL。CI 在两个系统、四个 Python 版本上检查。
 本地旧虚拟环境保留于 `.venv-legacy`；项目解释器使用 `.venv/bin/python`。
+
+日志采用 JSON Lines，每条包含 run ID、Git revision 和 parser 指纹，轮转上限约 40 MB。
+历史默认永久保留。`python -m crawler.maintenance data/utm_courses.json --keep 20`
+只展示压缩计划；追加 `--apply` 才执行：保留最新 20 个未压缩快照和当前发布内容，
+其余快照先压缩为同目录 `.json.gz` 并验证 SHA-256，再移除未压缩副本。
+运行元数据、原始 HTML、数据库不参与清理。压缩文件仍需用户按备份策略复制到独立存储；
+使用 gzip 解压可恢复原始快照字节。

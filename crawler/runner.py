@@ -16,6 +16,7 @@ from crawler.discovery import (
 )
 from crawler.http import HttpClient, HttpPolicy
 from crawler.http_cache import HttpCache
+from crawler.logging_config import RunFormatter
 from crawler.pipeline import CrawlSummary, crawl_courses
 from crawler.raw_data import RawArchive
 from crawler.run_records import RunRecord
@@ -39,14 +40,12 @@ def crawl_lock(database: Path, resource: str = "database"):
 
 
 @contextmanager
-def crawl_logging(path: Path):
+def crawl_logging(path: Path, identity=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(
         path, maxBytes=10_000_000, backupCount=3, encoding="utf-8"
     )
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-    )
+    handler.setFormatter(RunFormatter(identity or {}))
     logger = logging.getLogger("crawler")
     previous_level = logger.level
     logger.setLevel(logging.INFO)
@@ -146,8 +145,13 @@ def run_crawl(
     with ExitStack() as stack:
         for path in sorted(resources):
             stack.enter_context(crawl_lock(path, resources[path]))
-        logger = stack.enter_context(crawl_logging(Path(log_file)))
-        record = stack.enter_context(RunRecord(database, output, operation))
+        record = RunRecord(database, output, operation)
+        identity = {
+            key: record.data[key]
+            for key in ("run_id", "git_revision", "parser_version")
+        }
+        logger = stack.enter_context(crawl_logging(Path(log_file), identity))
+        stack.enter_context(record)
         try:
             with (
                 CrawlStore(database) as store,
