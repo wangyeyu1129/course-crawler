@@ -224,3 +224,5 @@ __marimo__/
 # Local historical HTML inputs
 /data/raw/
 /data/**/*.lock
+
+.venv*/

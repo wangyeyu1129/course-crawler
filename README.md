@@ -189,3 +189,9 @@ python main.py --crawl --operation reparse --raw-directory data/raw/utm_courses
 
 离线重新解析可从归档创建空检查点，不访问网站。归档损坏/缺失明确失败。
 旧版本未保存的 HTML 需要后续抓取或刷新后才会出现；本地 raw 目录不自动提交 Git。
+
+运行环境：支持 Python 3.11–3.14，macOS/Linux（任务锁使用 POSIX flock），
+需要 OpenSSL 1.1.1 或更新版本。使用 `python3.12 -m venv .venv`，然后
+`.venv/bin/python -m pip install -r requirements-dev.txt` 安装固定版本及开发工具。
+不要通过屏蔽 TLS 警告继续使用 LibreSSL。CI 在两个系统、四个 Python 版本上检查。
+本地旧虚拟环境保留于 `.venv-legacy`；项目解释器使用 `.venv/bin/python`。
