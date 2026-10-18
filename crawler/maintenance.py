@@ -14,8 +14,8 @@ import shutil
 from pathlib import Path
 
 from crawler.durability import sync_directory, temporary_file
-from crawler.runner import crawl_lock
 from crawler.snapshots import CHUNK_SIZE, file_digest
+from infrastructure.locking import crawl_lock
 
 
 def gzip_digest(path):

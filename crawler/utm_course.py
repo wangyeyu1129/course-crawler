@@ -7,9 +7,10 @@ from bs4 import BeautifulSoup
 from crawler.fields import FieldIndex, field_value, normalized_text
 from crawler.fields import get_labeled_field as get_labeled_field
 from crawler.http import HttpClient, HttpPolicy
-from crawler.models import Course, validate_course
 from crawler.urls import BASE_URL as BASE_URL
 from crawler.urls import course_url
+from crawler.validation import validate_utm_course as validate_course
+from domain.course import Course
 
 FIELD_LABELS = {
     "prerequisites": "Prerequisites",

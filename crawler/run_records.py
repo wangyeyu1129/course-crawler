@@ -4,23 +4,26 @@ import hashlib
 import logging
 import sqlite3
 import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
 from crawler.storage import write_json_atomic
-
-
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from infrastructure.clock import utc_now as utc_now
 
 
 def code_identity() -> dict:
     root = Path(__file__).resolve().parent
     digest = hashlib.sha256()
-    for name in ("utm_course.py", "fields.py", "urls.py", "models.py"):
-        digest.update(name.encode())
-        digest.update((root / name).read_bytes())
+    sources = (
+        root / "utm_course.py",
+        root / "fields.py",
+        root / "urls.py",
+        root / "validation.py",
+        root.parent / "domain" / "course.py",
+    )
+    for path in sources:
+        digest.update(path.relative_to(root.parent).as_posix().encode())
+        digest.update(path.read_bytes())
     try:
         revision = subprocess.run(
             ["git", "rev-parse", "HEAD"],

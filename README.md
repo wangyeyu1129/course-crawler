@@ -3,6 +3,11 @@
 UTM Academic Calendar 课程采集器：目录发现、详情解析、断点恢复、刷新、原始 HTML
 归档和离线重解析。当前支持 UTM；UTSG、UTSC、关系结构化、API 和前端尚未实现。
 
+共享课程契约位于 `domain/`，采集用例与接口位于 `application/`，
+通用时间/文件锁位于 `infrastructure/`；`crawler/` 保留 UTM 适配和旧入口。
+`api/`、`frontend/` 当前仅为预留目录。
+[目录边界与依赖规则](docs/architecture/module-boundaries.md) 说明允许的依赖及兼容路径。
+
 ## 环境与安装
 
 支持 Python 3.11–3.14，推荐 Python 3.12；支持 macOS/Linux（使用 POSIX 文件锁）。
@@ -157,6 +162,7 @@ HTTP Session 复用；多线程各自使用 Session，SQLite 结果由主线程�
 
 ```sh
 .venv/bin/python -m pip check
+.venv/bin/lint-imports --no-cache
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
 .venv/bin/python -m unittest discover -s tests -v
@@ -164,7 +170,9 @@ HTTP Session 复用；多线程各自使用 Session，SQLite 结果由主线程�
 
 测试不访问外部网站；传输测试会绑定回环地址的临时端口。
 CI 在 push/PR 时运行 macOS/Linux × Python 3.11/3.12/3.13/3.14 共八组检查，
-包含依赖、TLS、Ruff 和测试。现有完整页面样本覆盖 CSC108、CSC148、CSC207、MAT102、ANT102。
+包含依赖、TLS、架构依赖契约、Ruff 和测试。现有完整页面样本覆盖 CSC108、CSC148、CSC207、MAT102、ANT102。
 
 [T01 基线检查清单](docs/reports/t01-baseline.md) 记录指定提交的验证结果与数据状态。
 历史阶段报告保留当时的实施记录；当前运行方式以本 README 和 CLI 帮助为准。
+
+[T02 目录边界与共享模型报告](docs/reports/t02-module-boundaries.md) 记录本次迁移及兼容性验证。

@@ -1,2 +1,9 @@
 -r requirements.txt
 ruff==0.17.1
+import-linter==2.15
+click==8.5.0
+grimp==3.17
+rich==15.0.0
+markdown-it-py==4.2.0
+mdurl==0.1.2
+Pygments==2.21.0

@@ -5,15 +5,16 @@ import logging
 import os
 import sqlite3
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Iterator, Optional, TextIO
+from typing import Callable, Iterable, Optional, TextIO
 
+from application.models import WorkQueue as WorkQueue
 from crawler.durability import durable_mkdir, sync_directory, temporary_file
 from crawler.migrations import migrate_courses
-from crawler.models import Course, validate_course
 from crawler.snapshots import archive_file, file_digest
 from crawler.urls import normalize_course_url
+from crawler.validation import validate_utm_course as validate_course
+from domain.course import Course
 
 
 def _publish_json(
@@ -63,12 +64,6 @@ def write_json_array_atomic(
         handle.write("[]" if first else "\n]")
 
     return _publish_json(path, write, preserve_history=preserve_history)
-
-
-@dataclass(frozen=True)
-class WorkQueue:
-    total: int
-    urls: Iterator[str]
 
 
 class CrawlStore:

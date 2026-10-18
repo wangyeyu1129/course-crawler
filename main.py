@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
+from application.policies import validate_worker_count
 from crawler.cli_validation import parse_checked
 from crawler.discovery import (
     discover_course_urls,
@@ -70,8 +71,7 @@ def main() -> int:
             interval=args.interval,
             retries=args.retries,
         )
-        if not 1 <= args.workers <= 16:
-            raise ValueError("workers must be between 1 and 16.")
+        validate_worker_count(args.workers)
         if args.commit_batch_size < 1:
             raise ValueError("commit_batch_size must be positive.")
         validate_count_drop(args.max_count_drop)

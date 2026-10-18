@@ -6,9 +6,9 @@ from pathlib import Path
 
 from crawler.durability import durable_mkdir, temporary_file
 from crawler.migrations import execute_script, migrate_database
-from crawler.run_records import utc_now
 from crawler.snapshots import archive_file, file_digest
 from crawler.urls import normalize_course_url
+from infrastructure.clock import utc_now
 
 
 class RawArchive:

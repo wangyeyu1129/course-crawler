@@ -1,6 +1,5 @@
 """Lifecycle and file configuration for a resumable single-worker crawl."""
 
-import fcntl
 import json
 import logging
 from contextlib import ExitStack, contextmanager
@@ -9,6 +8,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
+from application.policies import validate_worker_count
 from crawler.discovery import (
     discover_course_urls,
     load_baseline_count,
@@ -21,22 +21,7 @@ from crawler.pipeline import CrawlSummary, crawl_courses
 from crawler.raw_data import RawArchive
 from crawler.run_records import RunRecord
 from crawler.storage import CrawlStore
-
-
-@contextmanager
-def crawl_lock(database: Path, resource: str = "database"):
-    """Prevent two local workers from consuming the same checkpoint (POSIX)."""
-    path = Path(str(database) + ".lock")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise RuntimeError(f"Another crawler is using this {resource}.") from error
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+from infrastructure.locking import crawl_lock as crawl_lock
 
 
 @contextmanager
@@ -111,8 +96,7 @@ def run_crawl(
         raise ValueError("limit must be a positive integer.")
     if type(commit_batch_size) is not int or commit_batch_size < 1:
         raise ValueError("commit_batch_size must be a positive integer.")
-    if type(workers) is not int or not 1 <= workers <= 16:
-        raise ValueError("workers must be between 1 and 16.")
+    validate_worker_count(workers)
     validate_count_drop(max_count_drop)
     cache_path = (
         Path(http_cache)

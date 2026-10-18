@@ -1,0 +1,76 @@
+[importlinter]
+root_packages =
+    domain
+    application
+    infrastructure
+    crawler
+    api
+include_external_packages = True
+
+[importlinter:contract:domain]
+name = Domain must not depend on adapters or use cases
+type = forbidden
+source_modules = domain
+forbidden_modules =
+    application
+    infrastructure
+    crawler
+    api
+    main
+    requests
+    bs4
+    fastapi
+
+[importlinter:contract:application]
+name = Application uses domain and ports, never concrete adapters
+type = forbidden
+source_modules = application
+forbidden_modules =
+    infrastructure
+    crawler
+    api
+    main
+    requests
+    bs4
+    fastapi
+
+[importlinter:contract:infrastructure]
+name = System primitives do not import business or entry points
+type = forbidden
+source_modules = infrastructure
+forbidden_modules =
+    domain
+    application
+    crawler
+    api
+    main
+    requests
+    bs4
+    fastapi
+
+[importlinter:contract:crawler]
+name = Crawler does not depend on presentation entry points
+type = forbidden
+source_modules = crawler
+forbidden_modules =
+    api
+    main
+
+[importlinter:contract:api]
+name = API uses application contracts, not crawler or system primitives
+type = forbidden
+source_modules = api
+forbidden_modules =
+    crawler
+    infrastructure
+    main
+
+[importlinter:contract:acyclic]
+name = Package modules must not form import cycles
+type = acyclic_siblings
+ancestors =
+    domain
+    application
+    infrastructure
+    crawler
+    api

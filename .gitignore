@@ -226,3 +226,5 @@ __marimo__/
 /data/**/*.lock
 
 .venv*/
+
+.import_linter_cache/
