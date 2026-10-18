@@ -15,6 +15,7 @@ from crawler.discovery import (
     validate_count_drop,
 )
 from crawler.http import HttpClient, HttpPolicy
+from crawler.http_cache import HttpCache
 from crawler.pipeline import crawl_courses
 from crawler.storage import CrawlStore
 
@@ -68,6 +69,8 @@ def run_crawl(
     retry_failed: bool = False,
     commit_batch_size: int = 1,
     workers: int = 1,
+    refresh: bool = False,
+    http_cache: Optional[Path] = None,
 ) -> dict:
     """Discover once, resume persisted tasks, and export committed results.
 
@@ -81,14 +84,25 @@ def run_crawl(
     if type(workers) is not int or not 1 <= workers <= 16:
         raise ValueError("workers must be between 1 and 16.")
     validate_count_drop(max_count_drop)
-    paths = [Path(path).resolve() for path in (database, output, log_file)]
+    cache_path = (
+        Path(http_cache)
+        if http_cache is not None
+        else Path(database).with_name(Path(database).stem + "_http.sqlite3")
+    )
+    paths = [Path(cache_path).resolve()] + [
+        Path(path).resolve() for path in (database, output, log_file)
+    ]
     if url_file is not None:
         paths.append(Path(url_file).resolve())
     if len(set(paths)) != len(paths):
         raise ValueError("Database, output, log and input files must be different.")
     with crawl_lock(Path(database).resolve()), crawl_logging(Path(log_file)) as logger:
         try:
-            with CrawlStore(database) as store, HttpClient(policy) as client:
+            with (
+                CrawlStore(database) as store,
+                HttpCache(cache_path) as cache,
+                HttpClient(policy, cache=cache) as client,
+            ):
                 if url_file is not None:
                     urls = json.loads(Path(url_file).read_text(encoding="utf-8"))
                     if (
@@ -100,7 +114,7 @@ def run_crawl(
                             "URL file must contain a nonempty JSON array of URLs."
                         )
                     store.enqueue(urls)
-                elif not sum(store.counts().values()):
+                elif refresh or not sum(store.counts().values()):
                     logger.info("discovery_started")
                     store.enqueue(
                         discover_course_urls(
@@ -113,6 +127,8 @@ def run_crawl(
                     logger.info(
                         "discovery_completed queued=%s", sum(store.counts().values())
                     )
+                if refresh:
+                    store.schedule_refresh()
                 try:
                     summary = crawl_courses(
                         store,

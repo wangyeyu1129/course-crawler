@@ -100,10 +100,24 @@ class CrawlStore:
                     result TEXT,
                     error TEXT,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    CHECK ((status = 'succeeded') = (result IS NOT NULL))
+                    CHECK (status != 'succeeded' OR result IS NOT NULL)
                 )
             """)
 
+            schema = self.connection.execute(
+                "SELECT sql FROM sqlite_master WHERE name='courses'"
+            ).fetchone()[0]
+            if "CHECK ((status = 'succeeded') = (result IS NOT NULL))" in schema:
+                self.connection.execute("""CREATE TABLE courses_updated (
+                    url TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN ('pending','succeeded','failed')), attempts INTEGER NOT NULL DEFAULT 0,
+                    result TEXT,error TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CHECK(status!='succeeded' OR result IS NOT NULL))""")
+                self.connection.execute(
+                    "INSERT INTO courses_updated(rowid,url,status,attempts,result,error,updated_at) SELECT rowid,url,status,attempts,result,error,updated_at FROM courses"
+                )
+                self.connection.execute("DROP TABLE courses")
+                self.connection.execute("ALTER TABLE courses_updated RENAME TO courses")
             self.connection.executescript("""
                 CREATE INDEX IF NOT EXISTS courses_status ON courses(status);
                 CREATE TABLE IF NOT EXISTS dataset_version (
@@ -251,12 +265,17 @@ class CrawlStore:
     def save_failure(self, url: str, error: str) -> None:
         with self._result_write():
             cursor = self.connection.execute(
-                """UPDATE courses SET status='failed', result=NULL, error=?,
+                """UPDATE courses SET status='failed', error=?,
                    attempts=attempts+1, updated_at=CURRENT_TIMESTAMP WHERE url=?""",
                 (error, url),
             )
             if cursor.rowcount != 1:
                 raise ValueError("Cannot fail an unknown course URL.")
+
+    def schedule_refresh(self):
+        """Refresh the known queue without discarding last-known-good results."""
+        with self.connection:
+            self.connection.execute("UPDATE courses SET status='pending', error=NULL")
 
     def counts(self) -> dict[str, int]:
         counts = dict.fromkeys(("pending", "succeeded", "failed"), 0)
@@ -297,7 +316,7 @@ class CrawlStore:
         courses = (
             json.loads(row[0])
             for row in self.connection.execute(
-                "SELECT result FROM courses WHERE status='succeeded' ORDER BY url"
+                "SELECT result FROM courses WHERE result IS NOT NULL ORDER BY url"
             )
         )
         snapshot = write_json_array_atomic(path, courses, preserve_history=True)

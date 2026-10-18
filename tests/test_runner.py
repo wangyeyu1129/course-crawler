@@ -163,3 +163,18 @@ class RunnerTests(unittest.TestCase):
             with self.assertRaises(OSError) as caught:
                 run_crawl(**self.kwargs)
         self.assertIs(caught.exception, failure)
+
+    @patch("crawler.runner.HttpClient")
+    @patch("crawler.runner.discover_course_urls")
+    def test_explicit_refresh_rediscovers_and_reparses_completed_courses(
+        self, discover, client_cls
+    ):
+        discover.return_value = self.urls[:1]
+        html = (self.fixtures / "csc148h5.html").read_text()
+        client = client_cls.return_value.__enter__.return_value
+        client.get_text.return_value = html
+        run_crawl(**self.kwargs)
+        result = run_crawl(**self.kwargs, refresh=True)
+        self.assertEqual(result["run"]["processed"], 1)
+        self.assertEqual(discover.call_count, 2)
+        self.assertEqual(client.get_text.call_count, 2)

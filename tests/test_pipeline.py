@@ -465,3 +465,37 @@ with CrawlStore(Path(sys.argv[1])) as store:
             for workers in [0, 17, True, 1.5]:
                 with self.subTest(workers=workers), self.assertRaises(ValueError):
                     crawl_courses(store, Mock(), workers=workers)
+
+    def test_refresh_retains_last_good_result_when_fetch_fails(self):
+        output = self.path / "courses.json"
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls[:1])
+            store.save_success(self.urls[0], {"url": self.urls[0], "name": "previous"})
+            first = store.export(output)
+            store.schedule_refresh()
+            with self.assertLogs("crawler.pipeline", level="ERROR"):
+                crawl_courses(store, Mock(side_effect=requests.Timeout()))
+            self.assertEqual(store.counts()["failed"], 1)
+            self.assertEqual(store.export(output), first)
+            self.assertEqual(json.loads(output.read_text())[0]["name"], "previous")
+
+    def test_existing_database_constraint_is_migrated_without_data_loss(self):
+        import sqlite3
+
+        with sqlite3.connect(self.database) as connection:
+            connection.execute(
+                """CREATE TABLE courses (url TEXT PRIMARY KEY,status TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,result TEXT,error TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,CHECK ((status = 'succeeded') = (result IS NOT NULL)))"""
+            )
+            connection.execute(
+                "INSERT INTO courses(url,status,result) VALUES (?,?,?)",
+                (self.urls[0], "succeeded", json.dumps({"url": self.urls[0]})),
+            )
+        with CrawlStore(self.database) as store:
+            store.schedule_refresh()
+            store.save_failure(self.urls[0], "timeout")
+            self.assertEqual(store.counts()["failed"], 1)
+            store.export(self.path / "courses.json")
+            self.assertEqual(
+                json.loads((self.path / "courses.json").read_text()),
+                [{"url": self.urls[0]}],
+            )

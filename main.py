@@ -40,6 +40,8 @@ def main() -> int:
         action="store_true",
         help="Retry failed courses after pending courses.",
     )
+    parser.add_argument("--refresh", action="store_true")
+    parser.add_argument("--http-cache", type=Path)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--commit-batch-size", type=int, default=1)
     parser.add_argument("--max-count-drop", type=float, default=0.1)
@@ -80,6 +82,8 @@ def main() -> int:
             retry_failed=args.retry_failed,
             commit_batch_size=args.commit_batch_size,
             workers=args.workers,
+            refresh=args.refresh,
+            http_cache=args.http_cache,
             policy=policy,
         )
         print(json.dumps(result, indent=2))
