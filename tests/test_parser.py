@@ -56,6 +56,29 @@ class FieldTests(unittest.TestCase):
                 )
                 self.assertEqual(get_labeled_field(soup, "Prerequisites"), expected)
 
+    def test_nested_field_text_is_isolated_and_dom_is_unchanged(self):
+        html = '<div class="field"><label class="field__label">Prerequisites</label><div class="field__item"><a>CSC108H5</a><div class="field"><label class="field__label">Exclusions</label><div class="field__item"><b>MAT102H5</b></div></div><p>or <em>CSC111H5</em></p></div></div>'
+        soup = BeautifulSoup(html, "html.parser")
+        before = str(soup)
+        self.assertEqual(
+            get_labeled_field(soup, "Prerequisites"), "CSC108H5 or CSC111H5"
+        )
+        self.assertEqual(get_labeled_field(soup, "Exclusions"), "MAT102H5")
+        self.assertEqual(str(soup), before)
+
+    def test_nested_fields_do_not_pollute_multivalue_items(self):
+        html = '<div class="field"><label class="field__label">Prerequisites</label><div class="field__items"><div class="field__item">First<div class="field"><div class="field__item">Wrong</div></div>after</div><div class="field__item">Second<br/>line<span class="field__item">continued</span></div></div></div>'
+        self.assertEqual(
+            get_labeled_field(BeautifulSoup(html, "html.parser"), "Prerequisites"),
+            "First after; Second line continued",
+        )
+
+    def test_item_containing_only_another_field_is_empty(self):
+        html = '<div class="field"><label class="field__label">Prerequisites</label><div class="field__item"><div class="field"><div class="field__item">Wrong</div></div></div></div>'
+        self.assertIsNone(
+            get_labeled_field(BeautifulSoup(html, "html.parser"), "Prerequisites")
+        )
+
     def test_blank_query(self):
         for label in ["", "  ", ":"]:
             with self.subTest(label=label), self.assertRaises(ValueError):

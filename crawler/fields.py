@@ -14,12 +14,23 @@ def field_value(container: Tag) -> Optional[str]:
     """Read all items owned by this field without borrowing nested fields."""
     values = []
     for item in container.select(".field__item"):
-        if item.find_parent(class_="field__item") is not None:
-            continue
         owner = item.find_parent(class_="field")
         if owner is not None and owner is not container:
             continue
-        value = normalized_text(item)
+        ancestor_item = item.find_parent(class_="field__item")
+        if (
+            ancestor_item is not None
+            and ancestor_item.find_parent(class_="field") is owner
+        ):
+            continue
+        # Each text fragment belongs to its nearest field, not every ancestor.
+        # Read without mutating the soup so nested fields remain queryable.
+        fragments = (
+            str(text).strip()
+            for text in item.strings
+            if text.find_parent(class_="field") is owner
+        )
+        value = " ".join(" ".join(fragments).split())
         if value:
             values.append(value)
     return "; ".join(values) or None
