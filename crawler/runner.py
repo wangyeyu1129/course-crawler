@@ -3,7 +3,7 @@
 import fcntl
 import json
 import logging
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -23,7 +23,7 @@ from crawler.storage import CrawlStore
 
 
 @contextmanager
-def crawl_lock(database: Path):
+def crawl_lock(database: Path, resource: str = "database"):
     """Prevent two local workers from consuming the same checkpoint (POSIX)."""
     path = Path(str(database) + ".lock")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -31,7 +31,7 @@ def crawl_lock(database: Path):
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise RuntimeError("Another crawler is using this database.") from error
+            raise RuntimeError(f"Another crawler is using this {resource}.") from error
         try:
             yield
         finally:
@@ -128,15 +128,26 @@ def run_crawl(
     paths = [raw_path.resolve(), Path(cache_path).resolve()] + [
         Path(path).resolve() for path in (database, output, log_file)
     ]
+    progress_path = Path(output).parent / "progress" / Path(output).name
+    paths.append(progress_path.resolve())
     if url_file is not None:
         paths.append(Path(url_file).resolve())
     if len(set(paths)) != len(paths):
         raise ValueError("Database, output, log and input files must be different.")
-    with (
-        crawl_lock(Path(database).resolve()),
-        crawl_logging(Path(log_file)) as logger,
-        RunRecord(database, output, operation) as record,
-    ):
+    resources = {
+        Path(database).resolve(): "database",
+        Path(output).resolve(): "output",
+        progress_path.resolve(): "progress output",
+        Path(log_file).resolve(): "log",
+    }
+    lock_paths = {Path(str(path) + ".lock") for path in resources}
+    if any(path in lock_paths for path in paths):
+        raise ValueError("Data files must not overlap resource lock files.")
+    with ExitStack() as stack:
+        for path in sorted(resources):
+            stack.enter_context(crawl_lock(path, resources[path]))
+        logger = stack.enter_context(crawl_logging(Path(log_file)))
+        record = stack.enter_context(RunRecord(database, output, operation))
         try:
             with (
                 CrawlStore(database) as store,

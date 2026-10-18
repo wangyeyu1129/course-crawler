@@ -10,7 +10,7 @@ from crawler.discovery import (
     validate_count_drop,
 )
 from crawler.http import HttpClient, HttpPolicy
-from crawler.runner import run_crawl
+from crawler.runner import crawl_lock, run_crawl
 from crawler.storage import write_json_atomic
 from crawler.utm_course import fetch_course_page, parse_course_page
 
@@ -109,7 +109,8 @@ def main() -> int:
     else:
         result = parse_course_page(fetch_course_page(args.course_code, policy=policy))
     if args.output:
-        write_json_atomic(args.output, result)
+        with crawl_lock(args.output.resolve(), "output"):
+            write_json_atomic(args.output, result)
     else:
         print(json.dumps(result, indent=2))
     return 0

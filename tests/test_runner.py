@@ -255,3 +255,19 @@ class RunnerTests(unittest.TestCase):
         )
         discover.assert_not_called()
         client_cls.return_value.__enter__.return_value.get_text.assert_not_called()
+
+    @patch("crawler.runner.HttpClient")
+    def test_output_lock_blocks_a_different_database_before_io(self, client):
+        alternate = dict(self.kwargs, database=self.root / "other.sqlite3")
+        with crawl_lock(self.kwargs["output"].resolve(), "output"):
+            with self.assertRaisesRegex(RuntimeError, "output"):
+                run_crawl(**alternate)
+        self.assertFalse(alternate["database"].exists())
+        client.assert_not_called()
+
+    def test_lock_path_cannot_be_used_as_output_data(self):
+        alternate = dict(
+            self.kwargs, output=Path(str(self.kwargs["database"]) + ".lock")
+        )
+        with self.assertRaisesRegex(ValueError, "lock files"):
+            run_crawl(**alternate)
