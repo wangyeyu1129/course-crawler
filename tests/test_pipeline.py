@@ -312,3 +312,28 @@ os._exit(9)
                     next(queue.urls)
                     raise KeyboardInterrupt()
             self.assertEqual(store.work_urls(), self.urls)
+
+    def test_task_selection_uses_status_index_without_sorting(self):
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls)
+            store.save_failure(self.urls[0], "404")
+            statements = []
+            store.connection.set_trace_callback(statements.append)
+            self.assertEqual(
+                store.work_urls(3, retry_failed=True), self.urls[1:] + self.urls[:1]
+            )
+            store.connection.set_trace_callback(None)
+            queries = [
+                sql
+                for sql in statements
+                if sql.startswith("INSERT INTO run_queue(url) SELECT")
+            ]
+            self.assertTrue(queries)
+            for query in queries:
+                plan = " ".join(
+                    row[3]
+                    for row in store.connection.execute("EXPLAIN QUERY PLAN " + query)
+                )
+                self.assertIn("courses_status", plan)
+                self.assertNotIn("SCAN courses", plan)
+                self.assertNotIn("TEMP B-TREE", plan)

@@ -102,6 +102,7 @@ class CrawlStore:
             """)
 
             self.connection.executescript("""
+                CREATE INDEX IF NOT EXISTS courses_status ON courses(status);
                 CREATE TABLE IF NOT EXISTS dataset_version (
                     id INTEGER PRIMARY KEY CHECK (id=1), revision INTEGER NOT NULL
                 );
@@ -158,12 +159,18 @@ class CrawlStore:
                 "CREATE TEMP TABLE IF NOT EXISTS run_queue (sequence INTEGER PRIMARY KEY, url TEXT NOT NULL)"
             )
             self.connection.execute("DELETE FROM run_queue")
-            self.connection.execute(
-                """INSERT INTO run_queue(url)
-                SELECT url FROM courses WHERE status='pending' OR (? AND status='failed')
-                ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END, rowid LIMIT ?""",
-                (retry_failed, -1 if limit is None else limit),
-            )
+            selected = 0
+            for status in ("pending", "failed") if retry_failed else ("pending",):
+                remaining = -1 if limit is None else limit - selected
+                if remaining == 0:
+                    break
+                self.connection.execute(
+                    "INSERT INTO run_queue(url) SELECT url FROM courses WHERE status=? ORDER BY rowid LIMIT ?",
+                    (status, remaining),
+                )
+                selected = self.connection.execute(
+                    "SELECT COUNT(*) FROM run_queue"
+                ).fetchone()[0]
         total = self.connection.execute("SELECT COUNT(*) FROM run_queue").fetchone()[0]
         cursor = self.connection.execute("SELECT url FROM run_queue ORDER BY sequence")
 
