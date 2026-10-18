@@ -1,59 +1,61 @@
+"""UTM calendar adapter: fetch HTML separately from deterministic parsing."""
+
+import re
+from typing import Optional
+
 import requests
 from bs4 import BeautifulSoup
 
+from crawler.fields import field_value, get_labeled_field, normalized_text
 
 BASE_URL = "https://utm.calendar.utoronto.ca"
+FIELD_LABELS = {
+    "prerequisites": "Prerequisites",
+    "exclusions": "Exclusions",
+    "enrolment_limits": "Enrolment Limits",
+    "distribution_requirement": "Distribution Requirement",
+    "instruction_hours": "Total Instructional Hours",
+    "delivery_mode": "Mode of Delivery",
+    "program_area": "Program Area",
+}
 
 
-def fetch_course_page(course_code):
-    url = f"{BASE_URL}/course/{course_code.lower()}"
+def course_url(course_code: str) -> str:
+    """Build a UTM course URL from a validated calendar course code."""
+    code = course_code.strip().upper()
+    if not re.fullmatch(r"[A-Z]{3}\d{3}[HY]5", code):
+        raise ValueError("Invalid UTM course code.")
+    return f"{BASE_URL}/course/{code.lower()}"
 
-    response = requests.get(url, timeout=10)
 
+def fetch_course_page(course_code: str) -> str:
+    response = requests.get(course_url(course_code), timeout=10)
     response.raise_for_status()
-
     return response.text
 
 
-def parse_course_page(html):
+def get_description(soup: BeautifulSoup) -> Optional[str]:
+    """Use the description's semantic field class, independent of its label."""
+    container = soup.select_one(".field--name-field-desc")
+    return field_value(container) if container is not None else None
+
+
+def parse_course_page(html: str) -> dict[str, Optional[str]]:
+    """Parse one course. Optional absent fields are None; invalid titles fail."""
     soup = BeautifulSoup(html, "html.parser")
-
-    title = soup.find("h1", class_="page-title")
-
+    title = soup.select_one("h1.page-title")
     if title is None:
         raise ValueError("Course title not found.")
-
-    title_text = title.get_text(" ", strip=True)
-
-    parts = title_text.split("•", 1)
-
-    course_code = parts[0].strip()
-    course_name = parts[1].strip()
-
-    prerequisites = get_labeled_field(soup, "Prerequisites")
-    exclusions = get_labeled_field(soup, "Exclusions")
-
+    parts = normalized_text(title).split("•", 1)
+    if len(parts) != 2 or not parts[1].strip():
+        raise ValueError("Course title must contain a course code and name.")
+    code, name = (part.strip() for part in parts)
+    url = course_url(code)
     return {
-        "code": course_code,
-        "name": course_name,
-        "prerequisites": prerequisites,
-        "exclusions": exclusions
+        "code": code.upper(),
+        "name": name,
+        "campus": "UTM",
+        "description": get_description(soup),
+        **{key: get_labeled_field(soup, label) for key, label in FIELD_LABELS.items()},
+        "url": url,
     }
-
-def get_labeled_field(soup, field_name):
-    labels = soup.find_all("label", class_="field__label")
-
-    for label in labels:
-        label_text = label.get_text(" ", strip=True)
-
-        if label_text == field_name:
-            container = label.parent
-
-            value = container.find(class_="field__item")
-
-            if value is None:
-                return None
-
-            return value.get_text(" ", strip=True)
-
-    return None
