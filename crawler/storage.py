@@ -3,9 +3,11 @@
 import json
 import os
 import sqlite3
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Callable, Iterable, Optional, TextIO
+from typing import Callable, Iterable, Iterator, Optional, TextIO
 
 from crawler.snapshots import archive_file, file_digest
 from crawler.urls import normalize_course_url
@@ -69,6 +71,12 @@ def write_json_array_atomic(
         handle.write("[]" if first else "\n]")
 
     return _publish_json(path, write, preserve_history=preserve_history)
+
+
+@dataclass(frozen=True)
+class WorkQueue:
+    total: int
+    urls: Iterator[str]
 
 
 class CrawlStore:
@@ -136,20 +144,46 @@ class CrawlStore:
                 normalized,
             )
 
-    def work_urls(self, limit=None, *, retry_failed: bool = False) -> list[str]:
+    @contextmanager
+    def work_queue(
+        self, limit=None, *, retry_failed: bool = False, batch_size: int = 100
+    ):
+        """Freeze run membership in SQLite, fetching only one bounded batch at a time."""
         if limit is not None and (type(limit) is not int or limit < 1):
             raise ValueError("limit must be a positive integer.")
-        # Snapshot prevents repeatedly selecting a failed URL in the same run.
-        rows = self.connection.execute(
-            """SELECT url FROM courses
-               WHERE status='pending' OR (? AND status='failed')
-               ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END, rowid LIMIT ?""",
-            (
-                retry_failed,
-                -1 if limit is None else limit,
-            ),
-        )
-        return [row["url"] for row in rows]
+        if type(batch_size) is not int or batch_size < 1:
+            raise ValueError("batch_size must be a positive integer.")
+        with self.connection:
+            self.connection.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS run_queue (sequence INTEGER PRIMARY KEY, url TEXT NOT NULL)"
+            )
+            self.connection.execute("DELETE FROM run_queue")
+            self.connection.execute(
+                """INSERT INTO run_queue(url)
+                SELECT url FROM courses WHERE status='pending' OR (? AND status='failed')
+                ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END, rowid LIMIT ?""",
+                (retry_failed, -1 if limit is None else limit),
+            )
+        total = self.connection.execute("SELECT COUNT(*) FROM run_queue").fetchone()[0]
+        cursor = self.connection.execute("SELECT url FROM run_queue ORDER BY sequence")
+
+        def urls():
+            while True:
+                batch = cursor.fetchmany(batch_size)
+                if not batch:
+                    return
+                for row in batch:
+                    yield row["url"]
+
+        try:
+            yield WorkQueue(total, urls())
+        finally:
+            cursor.close()
+
+    def work_urls(self, limit=None, *, retry_failed: bool = False) -> list[str]:
+        """Compatibility helper; the pipeline uses work_queue for bounded memory."""
+        with self.work_queue(limit, retry_failed=retry_failed) as queue:
+            return list(queue.urls)
 
     def save_success(self, url: str, result: dict) -> None:
         payload = json.dumps(result, ensure_ascii=False)

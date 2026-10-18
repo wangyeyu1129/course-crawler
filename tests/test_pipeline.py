@@ -288,3 +288,27 @@ os._exit(9)
                 store.connection.execute("DELETE FROM courses")
             store.export(output)
             self.assertEqual(json.loads(output.read_text()), [])
+
+    def test_streamed_queue_membership_is_frozen_during_updates(self):
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls[:2])
+            with store.work_queue(retry_failed=True, batch_size=1) as queue:
+                self.assertEqual(queue.total, 2)
+                self.assertEqual(next(queue.urls), self.urls[0])
+                store.save_failure(self.urls[0], "retry later")
+                store.enqueue(self.urls[2:])
+                self.assertEqual(list(queue.urls), [self.urls[1]])
+            self.assertEqual(store.work_urls(), self.urls[1:])
+
+    def test_streamed_queue_validates_batch_size_and_closes_on_abort(self):
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls)
+            for size in [0, -1, True, 1.5]:
+                with self.subTest(size=size), self.assertRaises(ValueError):
+                    with store.work_queue(batch_size=size):
+                        pass
+            with self.assertRaises(KeyboardInterrupt):
+                with store.work_queue(batch_size=1) as queue:
+                    next(queue.urls)
+                    raise KeyboardInterrupt()
+            self.assertEqual(store.work_urls(), self.urls)
