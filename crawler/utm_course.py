@@ -3,10 +3,10 @@
 import re
 from typing import Optional
 
-import requests
 from bs4 import BeautifulSoup
 
 from crawler.fields import field_value, get_labeled_field, normalized_text
+from crawler.http import HttpClient, HttpPolicy
 
 BASE_URL = "https://utm.calendar.utoronto.ca"
 FIELD_LABELS = {
@@ -28,10 +28,9 @@ def course_url(course_code: str) -> str:
     return f"{BASE_URL}/course/{code.lower()}"
 
 
-def fetch_course_page(course_code: str) -> str:
-    response = requests.get(course_url(course_code), timeout=10)
-    response.raise_for_status()
-    return response.text
+def fetch_course_page(course_code: str, *, policy: HttpPolicy = HttpPolicy()) -> str:
+    with HttpClient(policy) as client:
+        return client.get_text(course_url(course_code))
 
 
 def get_description(soup: BeautifulSoup) -> Optional[str]:

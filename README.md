@@ -44,3 +44,58 @@ URL 统一为官方 HTTPS、小写路径，按首次出现顺序去重。
 发现失败时不会覆盖已有输出文件。队列目前是 JSON 快照，尚无执行状态、断点续跑或持久化调度。
 
 [Phase 2 完成报告](docs/reports/phase-2.md)
+
+## 完整抓取与断点恢复
+
+```sh
+# 首次运行：自动发现目录，再逐门抓取、解析、保存
+python main.py --crawl
+
+# 重启同一命令：跳过成功课程，继续待处理及失败课程
+python main.py --crawl
+
+# 使用已有 URL 队列，或先处理少量任务
+python main.py --crawl --url-file data/utm_course_urls.json --limit 10
+```
+
+默认文件：`data/utm_crawl.sqlite3` 保存检查点与课程数据，
+`data/utm_courses.json` 保存成功课程的 JSON 导出，`data/crawl.log` 保存进度、重试与异常堆栈。
+SQLite 和日志是本地运行文件，不提交 Git；课程 JSON 是可分享的数据快照。
+
+| 参数 | 默认值 / 用途 |
+| --- | --- |
+| `--database` | `data/utm_crawl.sqlite3`；更换文件可开始独立全量抓取 |
+| `--output` | 抓取模式默认 `data/utm_courses.json` |
+| `--log-file` | `data/crawl.log`；10 MB 轮转，保留 3 个备份 |
+| `--url-file` | 导入非空 JSON URL 数组，规范化去重后加入现有队列 |
+| `--limit` | 单次最多处理多少门未完成课程 |
+| `--interval` | 1 秒；每次 HTTP 尝试的最小开始间隔 |
+| `--timeout` | 30 秒读取超时；连接超时为 10 秒 |
+| `--retries` | 首次请求失败后最多重试 3 次 |
+| `--user-agent` | 项目标识和 GitHub 地址；可以自行配置 |
+
+HTTP 策略也用于单课程和 `--discover` 命令。超时、连接失败以及 429/500/502/503/504
+采用指数退避重试，遵守 `Retry-After`；其他 HTTP 错误及解析失败不在当前页面立即重试。
+所有页面失败在下一次 `--crawl` 时可再次尝试。
+
+每门课程的数据与成功状态在同一 SQLite 事务提交。Ctrl-C 会导出已提交结果；
+强制结束或断电后 SQLite 仍是恢复依据，最后一个未提交任务会重抓。
+JSON 在正常结束或可处理的中断时原子替换，运行过程中不代表最新进度。
+成功课程不会自动刷新；要更新全目录，请使用新的 `--database` 路径。
+默认只在空数据库时重新发现目录，发现过程本身中断后会从第一页重新开始。
+
+运行结束打印本轮和累计统计；存在失败课程时退出码为 1，完成或主动 `--limit` 分批退出为 0。
+课程详情页网络/解析错误继续处理；目录发现失败会停止，避免使用不完整目录。
+磁盘、数据库、配置错误明确停止。
+当前是本机单 worker 架构，数据库文件锁防止重复启动；支持 macOS/Linux（POSIX）。
+
+[Phase 3 完成报告](docs/reports/phase-3.md)
+
+开发检查（Python 3.9+，当前已在 macOS/Python 3.9 验证）：
+
+```sh
+python -m pip install -r requirements-dev.txt
+ruff check crawler main.py tests
+ruff format --check crawler main.py tests
+python -m unittest discover -s tests -v
+```

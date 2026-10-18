@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local crawl checkpoints and operational logs
+/data/*.sqlite3*
+/data/*.log*
