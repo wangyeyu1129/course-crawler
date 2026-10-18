@@ -1,217 +1,170 @@
 # course-crawler
 
-UTM Academic Calendar 单课程解析器。Python 3.9+。
+UTM Academic Calendar 课程采集器：目录发现、详情解析、断点恢复、刷新、原始 HTML
+归档和离线重解析。当前支持 UTM；UTSG、UTSC、关系结构化、API 和前端尚未实现。
+
+## 环境与安装
+
+支持 Python 3.11–3.14，推荐 Python 3.12；支持 macOS/Linux（使用 POSIX 文件锁）。
+需要 OpenSSL 1.1.1 或更新版本，不通过屏蔽警告兼容 LibreSSL。
+以下命令从仓库根目录执行：
 
 ```sh
-python -m pip install -r requirements.txt
-python main.py CSC148H5
-python -m unittest discover -s tests -v
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python main.py --help
 ```
 
-`parse_course_page(html)` 是不访问网络的解析入口，返回以下稳定字段：
-`code`, `name`, `campus`, `description`, `prerequisites`, `exclusions`,
-`enrolment_limits`, `distribution_requirement`, `instruction_hours`,
-`delivery_mode`, `program_area`, `url`。
+运行依赖及传递依赖固定在 `requirements.txt`；开发依赖在 `requirements-dev.txt`。
+只运行采集器时可以安装 `requirements.txt`。
 
-可选字段缺失或为空时返回 `None`（JSON 中为 `null`）；多值字段按页面顺序
-以 `; ` 连接。先修要求保留原始文字语义，不转换为课程依赖图。
-缺失或非法课程标题抛出 `ValueError`；网络错误由 requests 异常传递。
-
-- `crawler/fields.py`：通用 DOM 字段提取。
-- `crawler/utm_course.py`：UTM 字段映射、Description、课程解析与请求入口。
-- `main.py`：命令行编排；导入不会发送请求。
-- `tests/fixtures/`：2026-10-18 官方课程相关 DOM 片段，保留字段结构与文本；
-  来源为 `https://utm.calendar.utoronto.ca/course/<文件名去掉 .html>`。
-- [Phase 1D 完成报告](docs/reports/phase-1d.md)：设计权衡、测试和后续分层建议。
-
-## 自动发现全部 UTM 课程
+## 运行命令
 
 ```sh
-python main.py --discover --output data/utm_course_urls.json
+# 单课程：输出到终端；加 --output PATH 可保存 JSON
+.venv/bin/python main.py CSC148H5
+
+# 目录发现：只输出 URL 数组，不下载课程详情
+.venv/bin/python main.py --discover --output data/utm_course_urls.json
+
+# 首次采集：空检查点自动发现目录，然后逐门抓取
+.venv/bin/python main.py --crawl
+
+# 恢复：已有检查点只处理 pending，不重新发现或刷新成功课程
+.venv/bin/python main.py --crawl --operation resume
+
+# 重新发现目录，将新增 URL 加入任务库，不下载详情
+.venv/bin/python main.py --crawl --operation discover
+
+# 导入已有队列，并限制本次处理数量
+.venv/bin/python main.py --crawl --url-file data/utm_course_urls.json --limit 10
+
+# 待处理课程优先，然后重试失败课程；每个 URL 在单轮最多处理一次
+.venv/bin/python main.py --crawl --retry-failed
+
+# 刷新已有队列；不重新发现目录。--refresh 为兼容别名
+.venv/bin/python main.py --crawl --operation refresh
+
+# 刷新中断或分批后，使用 resume 继续；不要再次重置刷新任务
+.venv/bin/python main.py --crawl --operation resume
+
+# 从历史 HTML 离线重新解析；旧数据没有 HTML 时需先采集或刷新
+.venv/bin/python main.py --crawl --operation reparse --raw-directory data/raw/utm_courses
 ```
 
-不传 `--output` 时向标准输出打印 JSON URL 数组。发现过程从未筛选的
-`/course-search?page=0` 开始，跟随官方下一页链接，直至最后一页。
-搜索结果标题当前没有课程链接，因此从标题中的课程代码构建 URL，避免漏课，
-也避免将先修/排除条件中的引用误当成当前目录条目。
-URL 统一为官方 HTTPS、小写路径，按首次出现顺序去重。
+`--discover` 输出 URL 文件；`--crawl --operation discover` 更新任务数据库。
+两者都执行真实目录发现。目录发现失败不返回或发布部分目录。
 
-`crawler.discovery.discover_course_urls()` 返回 `collections.deque[str]`，后续 worker
-可用 `popleft()` 逐项取出。它只生成队列，本阶段不批量下载课程详情。
-`extract_course_urls(html)` 可独立用于提取页面中的真实课程链接。
-网络请求复用 session，每次搜索页请求之间默认等待 1 秒；函数支持注入 fetcher 离线测试。
-分页循环、超过安全页数、结构异常或网络失败会报错，不返回部分队列，
-发现失败时不会覆盖已有输出文件。队列目前是 JSON 快照，尚无执行状态、断点续跑或持久化调度。
+空数据库不能执行 refresh；reparse 可从原始 HTML 索引创建空任务库。
+任务库中的 URL 只增不减，发现操作不会自动移除网站已下架的课程。
+这里的“完整发布”指已知队列全部成功，不代表已经证明目录与网站实时一致。
 
-[Phase 2 完成报告](docs/reports/phase-2.md)
-
-## 完整抓取与断点恢复
-
-```sh
-# 首次运行：自动发现目录，再逐门抓取、解析、保存
-python main.py --crawl
-
-# 重启同一命令：跳过成功课程，继续待处理课程
-python main.py --crawl
-
-# 使用已有 URL 队列，或先处理少量任务
-python main.py --crawl --url-file data/utm_course_urls.json --limit 10
-```
-
-默认文件：`data/utm_crawl.sqlite3` 保存检查点与课程数据，
-`data/utm_courses.json` 保存每门课程最近一次成功结果的 JSON 导出，`data/crawl.log` 保存进度、重试与异常堆栈。
-SQLite 和日志是本地运行文件，不提交 Git；课程 JSON 是可分享的数据快照。
-
-| 参数 | 默认值 / 用途 |
+| 参数 | 默认值与行为 |
 | --- | --- |
-| `--database` | `data/utm_crawl.sqlite3`；更换文件可开始独立全量抓取 |
-| `--output` | 抓取模式默认 `data/utm_courses.json` |
+| `--database` | `data/utm_crawl.sqlite3`；采集检查点与结果 |
+| `--output` | crawl 模式为 `data/utm_courses.json`；其他模式不指定时输出到终端 |
 | `--log-file` | `data/crawl.log`；10 MB 轮转，保留 3 个备份 |
-| `--url-file` | 导入非空 JSON URL 数组，规范化去重后加入现有队列 |
-| `--limit` | 单次最多处理多少门未完成课程 |
-| `--interval` | 1 秒；每次 HTTP 尝试的最小开始间隔 |
-| `--timeout` | 30 秒读取超时；连接超时为 10 秒 |
-| `--retries` | 首次请求失败后最多重试 3 次 |
-| `--user-agent` | 项目标识和 GitHub 地址；可以自行配置 |
+| `--url-file` | 导入非空 JSON URL 数组，规范化并去重 |
+| `--limit` | 单次处理上限；未指定时处理本轮所有选中任务 |
+| `--workers` | 默认 1，范围 1–16；全局限速仍然有效 |
+| `--commit-batch-size` | 默认 1；增大会增加强制退出后的重抓数量 |
+| `--interval` | HTTP 尝试开始时间的最小间隔，默认 1 秒 |
+| `--timeout` | 读取超时默认 30 秒；连接超时为 10 秒 |
+| `--retries` | 首次失败后最多重试 3 次 |
+| `--user-agent` | 项目标识和 GitHub 地址，可配置 |
+| `--max-count-drop` | 相比历史输出允许下降的比例，默认 0.1；1 表示关闭数量下降检查 |
+| `--http-cache` | 默认在检查点旁创建 `<数据库名>_http.sqlite3` |
+| `--raw-directory` | 默认在输出旁使用 `raw/<输出名>/` |
 
-HTTP 策略也用于单课程和 `--discover` 命令。超时、连接失败以及 429/500/502/503/504
-采用指数退避重试，遵守 `Retry-After`；其他 HTTP 错误及解析失败不在当前页面立即重试。
-失败课程需显式执行 `python main.py --crawl --retry-failed` 再次尝试，待处理课程始终优先。
+不适用的参数会在 I/O 前报用法错误，包括显式传入的默认值；不接受选项名称缩写。
+目录和 crawl 模式不接受课程代码；离线模式不接受网络参数。
 
-每门课程的数据与成功状态在同一 SQLite 事务提交。Ctrl-C 会导出已提交结果；
-强制结束或断电后 SQLite 仍是恢复依据，最后一个未提交任务会重抓。
-JSON 在正常结束或可处理的中断时原子替换，运行过程中不代表最新进度。
-默认恢复不刷新成功课程；使用 `--refresh` 显式刷新已有队列。
-默认只在空数据库时重新发现目录，发现过程本身中断后会从第一页重新开始。
+## 数据契约与发布
 
-运行结束打印本轮和累计统计；存在失败课程时退出码为 1，完成或主动 `--limit` 分批退出为 0。
-课程详情页网络/解析错误继续处理；目录发现失败会停止，避免使用不完整目录。
-磁盘、数据库、配置错误明确停止。
-当前每个数据库由单个进程写入，抓取可选并发；文件锁防止重复启动。支持 macOS/Linux（POSIX）。
+`parse_course_page(html)` 是不访问网络的解析入口，返回以下 12 个字段：
 
-[Phase 3 完成报告](docs/reports/phase-3.md)
-
-开发检查（Python 3.9+，当前已在 macOS/Python 3.9 验证）：
-
-```sh
-python -m pip install -r requirements-dev.txt
-ruff check crawler main.py tests
-ruff format --check crawler main.py tests
-python -m unittest discover -s tests -v
+```text
+code, name, campus, description, prerequisites, exclusions,
+enrolment_limits, distribution_requirement, instruction_hours,
+delivery_mode, program_area, url
 ```
 
-## Phase 4：JSON 数据与历史快照
-
-每次 `--crawl` 导出课程结果时，同时保留历史版本：
+课程标题、代码、Description 和 URL 必须有效。可选字段缺失或为空时为 `None`，
+JSON 中为 `null`；多值字段用 `; ` 连接。关系目前保存为原文，尚未解析 AND/OR。
+当前契约没有独立 corequisite、学分或学年字段，也没有记录可选字段为空的具体原因。
 
 ```text
 data/
-  utm_courses.json                         # 当前成功课程结果
-  history/
-    utm_courses/
-      <SHA-256>.json                       # 历史结果，按内容去重
+  utm_course_urls.json                  # URL 队列快照
+  utm_crawl.sqlite3                     # 本地检查点，恢复依据
+  utm_courses.json                      # 队列全部成功时更新的正式结果
+  progress/utm_courses.json             # 未完成运行的进度结果
+  history/utm_courses/<SHA-256>.json     # 课程结果历史，按内容去重
+  runs/utm_courses/<run_id>.json         # 时间、版本、统计与发布状态
+  raw/utm_courses/index.sqlite3         # URL、正文哈希、run ID、采集时间
+  raw/utm_courses/html/<SHA-256>.html    # 交给 parser 的解码后 HTML，UTF-8
+  utm_crawl_http.sqlite3                # 最近的条件请求缓存
+  crawl.log                            # JSON Lines 运行日志
 ```
 
-命令和 12 个课程字段保持一致。运行结束的统计会给出 `snapshot` 文件路径；
-使用自定义 `--output path/name.json` 时，历史文件自动放在同目录的 `history/name/`。
-已有旧文件会在替换前归档，新结果也会先归档；字节完全一致时复用原快照，
-内容变化时产生新快照。应用不会覆盖已有历史文件，手工编辑当前文件不会修改历史。
-归档或发布失败会报错，并保留此前的当前文件；数据库检查点仍可用于恢复。
+上述目录按需生成；早期采集的数据不会自动补齐 HTML、元数据和新版日志。
+课程 JSON 可提交 Git；检查点、缓存、日志和 raw 是本地运行资料。
+修改 `--output` 时，快照、元数据、进度和默认原始 HTML 路径随输出位置变化。
 
-本阶段的 Raw Data 指课程解析结果 JSON，方便检查和对比历史结果。
-JSON 快照本身不包含 HTML。HTTP 缓存保留最近的可验证响应，用于条件请求；它不是完整的历史 HTML 归档。
-历史文件是成功结果集合，可能来自分批或含失败的抓取；完整性需结合运行统计/日志判断。
-快照内容标识不表示运行时间或 parser 版本；本版不增加元数据文件、自动清理或远程备份。
+每门成功结果和任务状态在同一事务提交。课程详情页失败不终止其他课程；
+数据库、磁盘、配置或目录发现异常会停止运行。中断尽力导出已提交结果，保留原始退出原因。
 
-[Phase 4 完成报告](docs/reports/phase-4.md)
+只有非空队列全部成功才更新正式输出，否则更新 progress；旧正式输出保留。
+刷新失败时，进度中可能保留该课程最近一次成功的数据，失败状态仍然存在。
+运行结束输出 run ID、统计、`published`、`export_path` 和快照路径。
+存在失败课程时退出码为 1；正常完成或主动分批退出为 0；用法错误为 2。
 
-课程页面必须包含非空 Description；缺少正文视为不完整页面并记录失败。
-Prerequisites 等可选字段缺失时仍为 `None`。
+数据库、正式输出、进度输出和日志加独占锁，避免不同任务覆盖相同文件。
+JSON 通过临时文件原子替换；归档与压缩备份执行文件和目录同步。
+目录同步失败可能发生在新文件已可见之后，应检查并重新运行；实际断电保证受文件系统影响。
 
-目录发现会核对分页容器、当前页、连续下一页和末页证据。
-已有输出存在时，发现操作会将其中唯一课程 URL 数作为历史基线，默认拒绝超过 10% 的数量下降。
-`--max-count-drop 0.2` 允许最多下降 20%；`--max-count-drop 1` 取消数量下降限制，分页检查仍执行。
-没有历史输出时，仅执行结构和分页一致性校验。
+## HTTP 与目录校验
 
-默认恢复只处理 pending 课程。`--retry-failed` 显式纳入失败任务，始终先处理 pending，
-每个失败 URL 在单轮最多处理一次，避免 `--limit` 分批任务被永久失败课程阻塞。
-未重试的失败记录仍保留在统计中，因此存在失败任务时退出码仍为 1。
+HTTP Session 复用；多线程各自使用 Session，SQLite 结果由主线程写入。
+超时、连接失败、响应截断及 429/500/502/503/504 采用指数退避并遵守 Retry-After。
+其他 HTTP 错误和解析失败不立即重复尝试。3xx 重定向直接拒绝，不跟随 Location。
 
-HTTP 客户端禁止自动重定向：3xx 会明确报错，不跟随 Location，也不对该响应立即重试。
+有 ETag/Last-Modified 时使用条件请求；304 复用经过哈希校验的缓存正文。
+缓存按请求头区分，遵守 no-store 和 Vary:*，不假定源站一定支持条件请求。
+缓存不等同于原始 HTML 历史。
 
-课程代码仅允许 ASCII 字母和数字；课程链接和分页统一接受官方域名的大小写变体及显式 443 端口，
-输出移除默认端口。包含凭据、非默认端口或相似外域的 URL 会被拒绝。
+目录校验分页容器、当前页、连续下一页、末页证据及分页循环。
+有历史输出时比较唯一课程 URL 数量；数量不是写死的固定总数。
+课程代码限制 ASCII，URL 限制官方 HTTPS 域名，无凭据，仅接受默认端口。
 
-`--commit-batch-size N` 可减少事务提交次数，默认 `1` 保持逐门提交。
-增大该值后，强制结束可能需要重抓最多 N 门未提交任务；正常结束提交尾批。
+## 维护与备份
 
-`--workers N` 启用 1..16 个抓取线程，默认 `1`。所有线程共用全局请求限速和冷却策略，
-分别复用 Session，SQLite 由主线程写入；并发不会放宽 `--interval`。
-中断时不再提交新请求，已经开始的请求需要完成或超时后释放资源。
-
-
-条件请求与刷新：
+以下命令默认只预览，追加 `--apply` 才修改文件：
 
 ```sh
-# 显式刷新已有课程，可复用 ETag / Last-Modified 缓存
-python main.py --crawl --refresh --workers 2
-
-# 中断/分批后继续当前队列，不再次重置刷新任务
-python main.py --crawl --workers 2
+.venv/bin/python -m crawler.maintenance data/utm_courses.json --keep 20
+.venv/bin/python -m crawler.durability data --min-age 86400
 ```
 
-缓存默认保存为检查点旁的 `<数据库名>_http.sqlite3`，可用 `--http-cache PATH` 指定。
-缓存按实际请求头（包括 Cookie、User-Agent 等）区分，校验响应体哈希，遵守 no-store / Vary:*。
-有验证器时发送条件请求，304 复用缓存正文；没有验证器或缓存损坏时正常下载，不假定网站一定支持缓存。
-首次刷新需要建立缓存。服务器仍会收到条件请求；缓存减少的是重复正文下载。
-刷新期间保留最近成功数据，单页刷新失败仍计入 failed，导出可包含该课程的旧有效结果。
-旧检查点会自动迁移以支持此状态，运行统计表示本轮刷新完成情况。
+历史维护保留最新指定数量的未压缩快照及当前发布内容。旧快照压缩为 `.json.gz`，
+校验解压内容 SHA-256 后才删除原副本；元数据、原始 HTML 和数据库不参与清理。
+压缩备份仍在本机，可用 gzip 解压恢复原始字节；当前没有自动异地备份。
 
+临时文件清理不递归，仅处理 `.crawler-tmp-进程号-*`：进程已退出、超过保留时长、
+当前用户拥有的普通文件且文件锁可获取。活跃文件、符号链接和未知名称保留。
 
-采集操作分离（均使用 `--crawl`）：
-- 默认 `--operation resume`：恢复待处理任务；空检查点才自动发现。
-- `--operation discover`：重新发现并加入新增 URL，不下载课程详情，不重置成功任务。
-- `--operation refresh`：只刷新已知队列，不重新发现目录；空队列需先发现。
-旧 `--refresh` 是 refresh 操作的兼容别名；它不再同时执行目录发现。
-
-每次采集的独立元数据保存到输出旁的 `runs/<输出名>/<run_id>.json`，
-记录 UTC 时间、Git revision、parser 源码哈希、操作、任务统计及课程快照哈希；课程 JSON 结构不变。
-
-正式 `--output` 仅在队列全部成功时更新。不完整运行写到旁边的 `progress/<输出文件名>`，
-不会替换先前完整结果；统计中的 `published` 和 `export_path` 明确指出发布状态与实际位置。
-
-详情页输入保存到输出旁的 `raw/<输出名>/html/<SHA-256>.html`，SQLite 索引关联 URL、run ID 和时间。
-这是实际交给 parser 的解码后 HTML 文本，统一 UTF-8 存储；相同正文只保存一份。
+## 验证与 CI
 
 ```sh
-python main.py --crawl --operation reparse --raw-directory data/raw/utm_courses
+.venv/bin/python -m pip check
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+.venv/bin/python -m unittest discover -s tests -v
 ```
 
-离线重新解析可从归档创建空检查点，不访问网站。归档损坏/缺失明确失败。
-旧版本未保存的 HTML 需要后续抓取或刷新后才会出现；本地 raw 目录不自动提交 Git。
+测试不访问外部网站；传输测试会绑定回环地址的临时端口。
+CI 在 push/PR 时运行 macOS/Linux × Python 3.11/3.12/3.13/3.14 共八组检查，
+包含依赖、TLS、Ruff 和测试。现有完整页面样本覆盖 CSC108、CSC148、CSC207、MAT102、ANT102。
 
-运行环境：支持 Python 3.11–3.14，macOS/Linux（任务锁使用 POSIX flock），
-需要 OpenSSL 1.1.1 或更新版本。使用 `python3.12 -m venv .venv`，然后
-`.venv/bin/python -m pip install -r requirements-dev.txt` 安装固定版本及开发工具。
-不要通过屏蔽 TLS 警告继续使用 LibreSSL。CI 在两个系统、四个 Python 版本上检查。
-本地旧虚拟环境保留于 `.venv-legacy`；项目解释器使用 `.venv/bin/python`。
-
-日志采用 JSON Lines，每条包含 run ID、Git revision 和 parser 指纹，轮转上限约 40 MB。
-历史默认永久保留。`python -m crawler.maintenance data/utm_courses.json --keep 20`
-只展示压缩计划；追加 `--apply` 才执行：保留最新 20 个未压缩快照和当前发布内容，
-其余快照先压缩为同目录 `.json.gz` 并验证 SHA-256，再移除未压缩副本。
-运行元数据、原始 HTML、数据库不参与清理。压缩文件仍需用户按备份策略复制到独立存储；
-使用 gzip 解压可恢复原始快照字节。
-
-CLI 会拒绝不适用参数，包含显式输入的默认值；不接受选项名称缩写。
-单课程模式可输入课程代码；`--discover` 和 `--crawl` 不接受课程代码。
-`--crawl --operation discover` 只发现目录，不能传 `--limit` 等抓取参数；
-`--crawl --operation reparse` 完全离线，不能传网络参数或 URL 导入文件。
-旧 `--refresh` 继续有效，但不能与 `--operation` 同时使用。
-
-原子 JSON 发布、快照和压缩备份会同步文件及父目录。目录同步失败会显式报错；
-此时新文件可能已可见，应重新运行校验。实际断电保证仍取决于文件系统和存储设备。
-`python -m crawler.durability data --min-age 86400` 预览该目录的孤立临时文件，
-追加 `--apply` 清理。命令不递归；每个目标目录需分别执行。
-仅处理新格式 `.crawler-tmp-进程号-*`、当前用户拥有的普通文件，
-要求进程已退出、超过保留时长且文件锁可取得；符号链接、活跃文件、旧格式及未知文件保留。
+[T01 基线检查清单](docs/reports/t01-baseline.md) 记录指定提交的验证结果与数据状态。
+历史阶段报告保留当时的实施记录；当前运行方式以本 README 和 CLI 帮助为准。

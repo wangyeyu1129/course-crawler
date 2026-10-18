@@ -1,0 +1,274 @@
+{
+  "checked_at": "2026-10-18T21:29:03.403404+00:00",
+  "source_commit": "5925a8082b00754d15ee2e57e0f37358b03ff39c",
+  "runtime": {
+    "python": "3.12.14",
+    "openssl": "3.5.8",
+    "sqlite": "3.53.1"
+  },
+  "checks": {
+    "unit_tests": 145,
+    "ruff_check": "passed",
+    "ruff_format": "passed",
+    "pip_check": "passed",
+    "ci_matrix_jobs": 8,
+    "ci_result": "success",
+    "ci_url": "https://github.com/wangyeyu1129/course-crawler/actions/runs/39166114011"
+  },
+  "data": {
+    "courses": 2491,
+    "unique_urls": 2491,
+    "unique_codes": 2491,
+    "queue_urls": 2491,
+    "invalid_records": 0,
+    "queue_result_difference": 0,
+    "database_result_matches_json": true,
+    "database_quick_check": "ok",
+    "source_schema_version": 0,
+    "copied_migrated_schema_version": 1,
+    "source_database_unchanged": true,
+    "snapshot_sha256": "e504a6b369968455c98a20f7d0698aecdaf231e50d122320b2d163c52f1e3ec6",
+    "snapshot_bytes": 2322837,
+    "history_files_verified": 1,
+    "legacy_raw_available": false,
+    "legacy_run_metadata_available": false
+  },
+  "smoke_artifacts": {
+    "json_log_records_checked": 13,
+    "run_metadata_files_checked": 5,
+    "raw_html_files": 2
+  },
+  "commands": [
+    {
+      "label": "help",
+      "command": [
+        "main.py",
+        "--help"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "maintenance-help",
+      "command": [
+        "-m",
+        "crawler.maintenance",
+        "--help"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "durability-help",
+      "command": [
+        "-m",
+        "crawler.durability",
+        "--help"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "legacy-resume",
+      "command": [
+        "main.py",
+        "--crawl",
+        "--database",
+        "$BASELINE_TMP/legacy-copy.sqlite3",
+        "--output",
+        "$BASELINE_TMP/legacy.json",
+        "--log-file",
+        "$BASELINE_TMP/legacy.log"
+      ],
+      "exit_code": 0,
+      "result": {
+        "run": {
+          "processed": 0,
+          "succeeded": 0,
+          "failed": 0
+        },
+        "queue": {
+          "pending": 0,
+          "succeeded": 2491,
+          "failed": 0
+        },
+        "published": true
+      }
+    },
+    {
+      "label": "single",
+      "command": [
+        "main.py",
+        "CSC148H5",
+        "--output",
+        "$BASELINE_TMP/single.json"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "partial",
+      "command": [
+        "main.py",
+        "--crawl",
+        "--database",
+        "$BASELINE_TMP/smoke.sqlite3",
+        "--output",
+        "$BASELINE_TMP/smoke.json",
+        "--log-file",
+        "$BASELINE_TMP/smoke.log",
+        "--url-file",
+        "$BASELINE_TMP/urls.json",
+        "--limit",
+        "1"
+      ],
+      "exit_code": 0,
+      "result": {
+        "run": {
+          "processed": 1,
+          "succeeded": 1,
+          "failed": 0
+        },
+        "queue": {
+          "pending": 1,
+          "succeeded": 1,
+          "failed": 0
+        },
+        "published": false
+      }
+    },
+    {
+      "label": "resume",
+      "command": [
+        "main.py",
+        "--crawl",
+        "--database",
+        "$BASELINE_TMP/smoke.sqlite3",
+        "--output",
+        "$BASELINE_TMP/smoke.json",
+        "--log-file",
+        "$BASELINE_TMP/smoke.log"
+      ],
+      "exit_code": 0,
+      "result": {
+        "run": {
+          "processed": 1,
+          "succeeded": 1,
+          "failed": 0
+        },
+        "queue": {
+          "pending": 0,
+          "succeeded": 2,
+          "failed": 0
+        },
+        "published": true
+      }
+    },
+    {
+      "label": "refresh",
+      "command": [
+        "main.py",
+        "--crawl",
+        "--database",
+        "$BASELINE_TMP/smoke.sqlite3",
+        "--output",
+        "$BASELINE_TMP/smoke.json",
+        "--log-file",
+        "$BASELINE_TMP/smoke.log",
+        "--operation",
+        "refresh",
+        "--limit",
+        "1"
+      ],
+      "exit_code": 0,
+      "result": {
+        "run": {
+          "processed": 1,
+          "succeeded": 1,
+          "failed": 0
+        },
+        "queue": {
+          "pending": 1,
+          "succeeded": 1,
+          "failed": 0
+        },
+        "published": false
+      }
+    },
+    {
+      "label": "resume-refresh",
+      "command": [
+        "main.py",
+        "--crawl",
+        "--database",
+        "$BASELINE_TMP/smoke.sqlite3",
+        "--output",
+        "$BASELINE_TMP/smoke.json",
+        "--log-file",
+        "$BASELINE_TMP/smoke.log"
+      ],
+      "exit_code": 0,
+      "result": {
+        "run": {
+          "processed": 1,
+          "succeeded": 1,
+          "failed": 0
+        },
+        "queue": {
+          "pending": 0,
+          "succeeded": 2,
+          "failed": 0
+        },
+        "published": true
+      }
+    },
+    {
+      "label": "offline-reparse",
+      "command": [
+        "-c",
+        "import requests,sys; from main import main; requests.sessions.Session.request=lambda *a,**k: (_ for _ in ()).throw(AssertionError(\"Offline command made an HTTP request\"));sys.argv=sys.argv[1:];raise SystemExit(main())",
+        "main.py",
+        "--crawl",
+        "--database",
+        "$BASELINE_TMP/smoke.sqlite3",
+        "--output",
+        "$BASELINE_TMP/smoke.json",
+        "--log-file",
+        "$BASELINE_TMP/smoke.log",
+        "--operation",
+        "reparse"
+      ],
+      "exit_code": 0,
+      "result": {
+        "run": {
+          "processed": 2,
+          "succeeded": 2,
+          "failed": 0
+        },
+        "queue": {
+          "pending": 0,
+          "succeeded": 2,
+          "failed": 0
+        },
+        "published": true
+      }
+    },
+    {
+      "label": "history-preview",
+      "command": [
+        "-m",
+        "crawler.maintenance",
+        "$BASELINE_TMP/smoke.json",
+        "--keep",
+        "1"
+      ],
+      "exit_code": 0
+    },
+    {
+      "label": "orphan-preview",
+      "command": [
+        "-m",
+        "crawler.durability",
+        "$BASELINE_TMP"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "live_full_catalog_refetched": false
+}
