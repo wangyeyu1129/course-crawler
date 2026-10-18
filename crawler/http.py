@@ -25,11 +25,23 @@ class HttpPolicy:
     backoff: float = 1.0
 
     def __post_init__(self) -> None:
-        if not self.user_agent.strip() or any(c in self.user_agent for c in "\r\n"):
-            raise ValueError("User-Agent must be nonempty and contain no newlines.")
+        if not isinstance(self.user_agent, str) or not self.user_agent.strip():
+            raise ValueError("User-Agent must be a nonempty string.")
+        try:
+            requests.utils.check_header_validity(("User-Agent", self.user_agent))
+            self.user_agent.encode("latin-1")
+        except (requests.exceptions.InvalidHeader, UnicodeEncodeError) as error:
+            raise ValueError("User-Agent is not a valid HTTP header value.") from error
+        if any(ord(char) < 32 or ord(char) == 127 for char in self.user_agent):
+            raise ValueError("User-Agent must not contain control characters.")
         for name in ("connect_timeout", "read_timeout", "interval", "backoff"):
             value = getattr(self, name)
-            if not math.isfinite(value) or value < 0:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
                 raise ValueError(f"{name} must be finite and nonnegative.")
         if self.connect_timeout == 0 or self.read_timeout == 0:
             raise ValueError("Timeouts must be positive.")

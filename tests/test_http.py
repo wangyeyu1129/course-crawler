@@ -207,3 +207,41 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(client.get_text("second"), "html")
         self.assertEqual(clock.sleeps, [2])
         self.assertEqual(session.get.call_count, 2)
+
+    def test_header_validation_matches_preparation_and_transport(self):
+        for agent in [
+            " leading",
+            "\tleading",
+            "bad\rvalue",
+            "bad\nvalue",
+            "bad\x00value",
+            "bad\x7fvalue",
+            "中文",
+            "🤖",
+            None,
+            b"bytes",
+        ]:
+            with self.subTest(agent=agent), self.assertRaises(ValueError):
+                HttpPolicy(user_agent=agent)
+        for agent in [
+            "test-bot/1.0",
+            "test-bot/1.0 (+https://example.test)",
+            "test-bot café",
+        ]:
+            with self.subTest(agent=agent):
+                policy = HttpPolicy(user_agent=agent)
+                prepared = requests.Request(
+                    "GET",
+                    "https://example.test",
+                    headers={"User-Agent": policy.user_agent},
+                ).prepare()
+                self.assertEqual(prepared.headers["User-Agent"], agent)
+
+    def test_invalid_numeric_types_fail_at_configuration(self):
+        for name in ["connect_timeout", "read_timeout", "interval", "backoff"]:
+            for value in [None, "10", True, float("nan"), float("inf"), -1]:
+                with (
+                    self.subTest(name=name, value=value),
+                    self.assertRaises(ValueError),
+                ):
+                    HttpPolicy(**{name: value})

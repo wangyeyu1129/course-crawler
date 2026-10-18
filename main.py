@@ -4,7 +4,11 @@ import argparse
 import json
 from pathlib import Path
 
-from crawler.discovery import discover_course_urls, load_baseline_count
+from crawler.discovery import (
+    discover_course_urls,
+    load_baseline_count,
+    validate_count_drop,
+)
 from crawler.http import HttpClient, HttpPolicy
 from crawler.runner import run_crawl
 from crawler.storage import write_json_atomic
@@ -47,12 +51,18 @@ def main() -> int:
     parser.add_argument("--user-agent", default=HttpPolicy().user_agent)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    policy = HttpPolicy(
-        user_agent=args.user_agent,
-        read_timeout=args.timeout,
-        interval=args.interval,
-        retries=args.retries,
-    )
+    try:
+        policy = HttpPolicy(
+            user_agent=args.user_agent,
+            read_timeout=args.timeout,
+            interval=args.interval,
+            retries=args.retries,
+        )
+        validate_count_drop(args.max_count_drop)
+        if args.limit is not None and args.limit < 1:
+            raise ValueError("limit must be positive.")
+    except ValueError as error:
+        parser.error(str(error))
     if args.crawl:
         result = run_crawl(
             database=args.database,

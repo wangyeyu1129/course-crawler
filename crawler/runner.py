@@ -9,7 +9,11 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
-from crawler.discovery import discover_course_urls, load_baseline_count
+from crawler.discovery import (
+    discover_course_urls,
+    load_baseline_count,
+    validate_count_drop,
+)
 from crawler.http import HttpClient, HttpPolicy
 from crawler.pipeline import crawl_courses
 from crawler.storage import CrawlStore
@@ -70,6 +74,7 @@ def run_crawl(
     """
     if limit is not None and (type(limit) is not int or limit < 1):
         raise ValueError("limit must be a positive integer.")
+    validate_count_drop(max_count_drop)
     paths = [Path(path).resolve() for path in (database, output, log_file)]
     if url_file is not None:
         paths.append(Path(url_file).resolve())

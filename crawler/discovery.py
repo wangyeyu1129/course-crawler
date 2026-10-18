@@ -143,6 +143,16 @@ def load_baseline_count(path: Optional[Path]) -> Optional[int]:
         raise DiscoveryError(f"Invalid discovery baseline: {path}") from error
 
 
+def validate_count_drop(value: float) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or not 0 <= value <= 1
+    ):
+        raise ValueError("max_count_drop must be finite and between 0 and 1.")
+
+
 def discover_course_urls(
     fetch_page: Optional[Callable[[str], str]] = None,
     *,
@@ -163,15 +173,11 @@ def discover_course_urls(
         or max_pages < 1
     ):
         raise ValueError("Delay must be nonnegative and max_pages must be positive.")
-    if (
-        not math.isfinite(max_count_drop)
-        or not 0 <= max_count_drop <= 1
-        or (
-            baseline_count is not None
-            and (type(baseline_count) is not int or baseline_count < 1)
-        )
+    validate_count_drop(max_count_drop)
+    if baseline_count is not None and (
+        type(baseline_count) is not int or baseline_count < 1
     ):
-        raise ValueError("Invalid discovery baseline or count-drop threshold.")
+        raise ValueError("Invalid discovery baseline.")
     with HttpClient(HttpPolicy(interval=delay_seconds)) as client:
         fetcher = fetch_page if fetch_page is not None else client.get_text
         current = f"{SEARCH_URL}?page=0"

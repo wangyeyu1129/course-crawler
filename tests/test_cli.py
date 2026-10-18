@@ -3,7 +3,7 @@
 import json
 import unittest
 from collections import deque
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -72,3 +72,26 @@ class CliTests(unittest.TestCase):
         crawl.return_value = {"queue": {"failed": 0}}
         with patch("sys.argv", ["main.py", "--crawl"]), redirect_stdout(StringIO()):
             self.assertEqual(main(), 0)
+
+    @patch("main.run_crawl")
+    @patch("main.HttpClient")
+    def test_invalid_configuration_stops_before_io(self, client, crawl):
+        for args in [
+            ["--user-agent", " invalid"],
+            ["--user-agent", "中文"],
+            ["--timeout", "0"],
+            ["--interval", "nan"],
+            ["--max-count-drop", "nan"],
+            ["--max-count-drop", "2"],
+            ["--limit", "0"],
+        ]:
+            with (
+                self.subTest(args=args),
+                patch("sys.argv", ["main.py", "--crawl", *args]),
+                redirect_stderr(StringIO()),
+            ):
+                with self.assertRaises(SystemExit) as caught:
+                    main()
+                self.assertEqual(caught.exception.code, 2)
+        client.assert_not_called()
+        crawl.assert_not_called()
