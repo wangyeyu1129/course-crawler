@@ -128,3 +128,38 @@ class RunnerTests(unittest.TestCase):
             run_crawl(**self.kwargs)
         self.assertEqual(logger.handlers, handlers)
         self.assertEqual(logger.level, level)
+
+    @patch("crawler.runner.HttpClient")
+    def test_export_failure_preserves_original_abort(self, client):
+        with CrawlStore(self.kwargs["database"]) as store:
+            store.enqueue(self.urls[:1])
+        for primary in [
+            KeyboardInterrupt("stop"),
+            SystemExit(7),
+            OSError("checkpoint failed"),
+        ]:
+            with self.subTest(primary=type(primary).__name__):
+                with (
+                    patch("crawler.runner.crawl_courses", side_effect=primary),
+                    patch.object(
+                        CrawlStore, "export", side_effect=OSError("export disk full")
+                    ),
+                ):
+                    with self.assertRaises(type(primary)) as caught:
+                        run_crawl(**self.kwargs)
+                self.assertIs(caught.exception, primary)
+        text = self.kwargs["log_file"].read_text()
+        self.assertIn("export_failed_during_abort", text)
+        self.assertIn("export disk full", text)
+        self.assertIn("crawl_interrupted", text)
+
+    @patch("crawler.runner.HttpClient")
+    def test_export_failure_after_normal_completion_still_fails(self, client):
+        with CrawlStore(self.kwargs["database"]) as store:
+            store.enqueue(self.urls[:1])
+            store.save_success(self.urls[0], {"url": self.urls[0]})
+        failure = OSError("export disk full")
+        with patch.object(CrawlStore, "export", side_effect=failure):
+            with self.assertRaises(OSError) as caught:
+                run_crawl(**self.kwargs)
+        self.assertIs(caught.exception, failure)

@@ -106,7 +106,14 @@ def run_crawl(
                     summary = crawl_courses(
                         store, client.get_text, limit=limit, retry_failed=retry_failed
                     )
-                finally:
+                except BaseException:
+                    # Best-effort export must not replace the task's failure or interrupt.
+                    try:
+                        store.export(output)
+                    except Exception:
+                        logger.exception("export_failed_during_abort")
+                    raise
+                else:
                     snapshot = store.export(output)
                 result = {
                     "run": asdict(summary),
