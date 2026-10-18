@@ -8,6 +8,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from course_factory import course_record
+
 from crawler.http import HttpPolicy
 from crawler.runner import crawl_lock, run_crawl
 from crawler.storage import CrawlStore
@@ -161,7 +163,7 @@ class RunnerTests(unittest.TestCase):
     def test_export_failure_after_normal_completion_still_fails(self, client):
         with CrawlStore(self.kwargs["database"]) as store:
             store.enqueue(self.urls[:1])
-            store.save_success(self.urls[0], {"url": self.urls[0]})
+            store.save_success(self.urls[0], course_record(self.urls[0]))
         failure = OSError("export disk full")
         with patch.object(CrawlStore, "export", side_effect=failure):
             with self.assertRaises(OSError) as caught:
@@ -186,7 +188,7 @@ class RunnerTests(unittest.TestCase):
     def test_discovery_operation_only_adds_new_tasks(self, discover, client_cls):
         with CrawlStore(self.kwargs["database"]) as store:
             store.enqueue(self.urls[:1])
-            store.save_success(self.urls[0], {"url": self.urls[0]})
+            store.save_success(self.urls[0], course_record(self.urls[0]))
         discover.return_value = self.urls
         result = run_crawl(**self.kwargs, operation="discover")
         self.assertEqual(result["run"]["processed"], 0)
@@ -203,7 +205,7 @@ class RunnerTests(unittest.TestCase):
     def test_run_metadata_records_identity_counts_and_snapshot(self, client):
         with CrawlStore(self.kwargs["database"]) as store:
             store.enqueue(self.urls[:1])
-            store.save_success(self.urls[0], {"url": self.urls[0]})
+            store.save_success(self.urls[0], course_record(self.urls[0]))
         first = run_crawl(**self.kwargs)
         second = run_crawl(**self.kwargs)
         metadata = json.loads(Path(first["metadata"]).read_text())

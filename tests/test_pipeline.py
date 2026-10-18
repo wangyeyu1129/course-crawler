@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 import requests
+from course_factory import course_record
 
 from crawler.pipeline import crawl_courses
 from crawler.storage import CrawlStore, write_json_atomic
@@ -41,7 +42,7 @@ class PipelineTests(unittest.TestCase):
             )
             with self.assertLogs("crawler.pipeline", level="INFO") as logs:
                 summary = crawl_courses(
-                    store, fetch, parse_course=lambda url: {"url": url}
+                    store, fetch, parse_course=lambda url: course_record(url)
                 )
             self.assertEqual(
                 (summary.processed, summary.succeeded, summary.failed), (3, 2, 1)
@@ -59,7 +60,10 @@ class PipelineTests(unittest.TestCase):
             store.enqueue(self.urls)
             fetch = Mock(return_value=self.urls[1])
             crawl_courses(
-                store, fetch, parse_course=lambda url: {"url": url}, retry_failed=True
+                store,
+                fetch,
+                parse_course=lambda url: course_record(url),
+                retry_failed=True,
             )
             fetch.assert_called_once_with(self.urls[1])
             row = store.connection.execute(
@@ -75,7 +79,9 @@ class PipelineTests(unittest.TestCase):
     def test_unexpected_parse_error_is_isolated(self):
         with CrawlStore(self.database) as store:
             store.enqueue(self.urls[:2])
-            parse = Mock(side_effect=[RuntimeError("bad DOM"), {"url": self.urls[1]}])
+            parse = Mock(
+                side_effect=[RuntimeError("bad DOM"), course_record(self.urls[1])]
+            )
             with self.assertLogs("crawler.pipeline", level="ERROR") as logs:
                 summary = crawl_courses(store, lambda url: url, parse_course=parse)
             self.assertEqual(summary.failed, 1)
@@ -89,7 +95,7 @@ class PipelineTests(unittest.TestCase):
                 crawl_courses(
                     store,
                     lambda url: "",
-                    parse_course=lambda html: {"url": self.urls[1]},
+                    parse_course=lambda html: course_record(self.urls[1]),
                 )
             self.assertEqual(store.counts()["failed"], 1)
 
@@ -101,7 +107,7 @@ class PipelineTests(unittest.TestCase):
                 crawl_courses(
                     store,
                     fetch,
-                    parse_course=lambda url: {"url": url},
+                    parse_course=lambda url: course_record(url),
                     retry_failed=True,
                 )
         with CrawlStore(self.database) as store:
@@ -113,7 +119,7 @@ class PipelineTests(unittest.TestCase):
     def test_process_crash_rolls_back_uncommitted_task(self):
         with CrawlStore(self.database) as store:
             store.enqueue(self.urls[:2])
-            store.save_success(self.urls[0], {"url": self.urls[0]})
+            store.save_success(self.urls[0], course_record(self.urls[0]))
         script = """
 import json, os, sqlite3, sys
 connection = sqlite3.connect(sys.argv[1])
@@ -138,7 +144,9 @@ os._exit(9)
             with patch.object(store, "save_success", side_effect=OSError("disk full")):
                 with self.assertRaises(OSError):
                     crawl_courses(
-                        store, lambda url: url, parse_course=lambda url: {"url": url}
+                        store,
+                        lambda url: url,
+                        parse_course=lambda url: course_record(url),
                     )
             self.assertEqual(store.counts()["pending"], 3)
             self.assertEqual(store.counts()["failed"], 0)
@@ -148,7 +156,10 @@ os._exit(9)
             self.assertEqual(crawl_courses(store, Mock()).processed, 0)
             store.enqueue(self.urls)
             summary = crawl_courses(
-                store, lambda url: url, parse_course=lambda url: {"url": url}, limit=1
+                store,
+                lambda url: url,
+                parse_course=lambda url: course_record(url),
+                limit=1,
             )
             self.assertEqual(summary.processed, 1)
             self.assertEqual(store.counts()["pending"], 2)
@@ -168,14 +179,14 @@ os._exit(9)
     def test_serialization_failure_does_not_complete_task(self):
         with CrawlStore(self.database) as store:
             store.enqueue(self.urls[:1])
-            with self.assertRaises(TypeError):
+            with self.assertRaises(ValueError):
                 store.save_success(self.urls[0], {"value": object()})
             self.assertEqual(store.counts()["pending"], 1)
 
     def test_unknown_task_cannot_be_saved(self):
         with CrawlStore(self.database) as store:
             with self.assertRaises(ValueError):
-                store.save_success(self.urls[0], {})
+                store.save_success(self.urls[0], course_record(self.urls[0]))
             with self.assertRaises(ValueError):
                 store.save_failure(self.urls[0], "error")
 
@@ -212,7 +223,7 @@ os._exit(9)
                 crawl_courses(
                     store,
                     lambda url: url,
-                    parse_course=lambda url: {"url": url},
+                    parse_course=lambda url: course_record(url),
                     limit=1,
                     retry_failed=True,
                 )
@@ -235,7 +246,7 @@ os._exit(9)
         output = self.path / "courses.json"
         with CrawlStore(self.database) as store:
             store.enqueue(self.urls[:1])
-            store.save_success(self.urls[0], {"url": self.urls[0]})
+            store.save_success(self.urls[0], course_record(self.urls[0]))
             first = store.export(output)
         with (
             CrawlStore(self.database) as store,
@@ -256,11 +267,13 @@ os._exit(9)
         output = self.path / "courses.json"
         with CrawlStore(self.database) as store:
             store.enqueue(self.urls[:1])
-            store.save_success(self.urls[0], {"url": self.urls[0]})
+            store.save_success(self.urls[0], course_record(self.urls[0]))
             first = store.export(output)
             output.write_text('["edited"]')
             self.assertEqual(store.export(output), first)
-            self.assertEqual(json.loads(output.read_text()), [{"url": self.urls[0]}])
+            self.assertEqual(
+                json.loads(output.read_text()), [course_record(self.urls[0])]
+            )
             self.assertEqual(len(list(first.parent.glob("*.json"))), 2)
             output.unlink()
             self.assertEqual(store.export(output), first)
@@ -269,9 +282,11 @@ os._exit(9)
         output = self.path / "courses.json"
         with CrawlStore(self.database) as store:
             store.enqueue(self.urls[:1])
-            store.save_success(self.urls[0], {"url": self.urls[0]})
+            store.save_success(self.urls[0], course_record(self.urls[0]))
             first = store.export(output)
-            store.save_success(self.urls[0], {"url": self.urls[0], "name": "changed"})
+            store.save_success(
+                self.urls[0], course_record(self.urls[0], name="changed")
+            )
             second = store.export(output)
             self.assertNotEqual(first, second)
             second.write_text("corrupt")
@@ -282,7 +297,7 @@ os._exit(9)
         output = self.path / "courses.json"
         with CrawlStore(self.database) as store:
             store.enqueue(self.urls[:1])
-            store.save_success(self.urls[0], {"url": self.urls[0]})
+            store.save_success(self.urls[0], course_record(self.urls[0]))
             store.export(output)
             with store.connection:
                 store.connection.execute("DELETE FROM courses")
@@ -352,11 +367,11 @@ os._exit(9)
                 ).fetchone()[0]
 
             with store.batch_writes(2):
-                store.save_success(self.urls[0], {"url": self.urls[0]})
+                store.save_success(self.urls[0], course_record(self.urls[0]))
                 self.assertEqual(count(), 0)
-                store.save_success(self.urls[1], {"url": self.urls[1]})
+                store.save_success(self.urls[1], course_record(self.urls[1]))
                 self.assertEqual(count(), 2)
-                store.save_success(self.urls[2], {"url": self.urls[2]})
+                store.save_success(self.urls[2], course_record(self.urls[2]))
                 self.assertEqual(count(), 2)
             self.assertEqual(count(), 3)
 
@@ -366,14 +381,14 @@ os._exit(9)
             with self.assertRaises(RuntimeError):
                 with store.batch_writes(2):
                     for url in self.urls:
-                        store.save_success(url, {"url": url})
+                        store.save_success(url, course_record(url))
                     raise RuntimeError("fatal")
             self.assertEqual(
                 store.counts(), {"pending": 1, "failed": 0, "succeeded": 2}
             )
             with self.assertRaises(KeyboardInterrupt):
                 with store.batch_writes(5):
-                    store.save_success(self.urls[2], {"url": self.urls[2]})
+                    store.save_success(self.urls[2], course_record(self.urls[2]))
                     raise KeyboardInterrupt()
             self.assertEqual(store.counts()["succeeded"], 3)
 
@@ -385,16 +400,23 @@ os._exit(9)
                     with store.batch_writes(size):
                         pass
         script = """
-import os,sys
+import os,sys,json
 from pathlib import Path
 from crawler.storage import CrawlStore
 with CrawlStore(Path(sys.argv[1])) as store:
  with store.batch_writes(5):
-  store.save_success(sys.argv[2],{'url':sys.argv[2]})
+  store.save_success(sys.argv[2],json.loads(sys.argv[3]))
   os._exit(9)
 """
         process = subprocess.run(
-            [sys.executable, "-c", script, str(self.database), self.urls[0]],
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(self.database),
+                self.urls[0],
+                json.dumps(course_record(self.urls[0])),
+            ],
             capture_output=True,
         )
         self.assertEqual(process.returncode, 9)
@@ -433,7 +455,7 @@ with CrawlStore(Path(sys.argv[1])) as store:
 
             with patch.object(store, "save_success", side_effect=save_on_owner):
                 result = crawl_courses(
-                    store, fetch, parse_course=lambda url: {"url": url}, workers=2
+                    store, fetch, parse_course=lambda url: course_record(url), workers=2
                 )
             self.assertEqual(result.succeeded, 3)
             self.assertEqual(peak, 2)
@@ -451,7 +473,7 @@ with CrawlStore(Path(sys.argv[1])) as store:
                 result = crawl_courses(
                     store,
                     fetch,
-                    parse_course=lambda url: {"url": url},
+                    parse_course=lambda url: course_record(url),
                     workers=2,
                     commit_batch_size=2,
                 )
@@ -470,7 +492,9 @@ with CrawlStore(Path(sys.argv[1])) as store:
         output = self.path / "courses.json"
         with CrawlStore(self.database) as store:
             store.enqueue(self.urls[:1])
-            store.save_success(self.urls[0], {"url": self.urls[0], "name": "previous"})
+            store.save_success(
+                self.urls[0], course_record(self.urls[0], name="previous")
+            )
             first = store.export(output)
             store.schedule_refresh()
             with self.assertLogs("crawler.pipeline", level="ERROR"):
@@ -488,7 +512,7 @@ with CrawlStore(Path(sys.argv[1])) as store:
             )
             connection.execute(
                 "INSERT INTO courses(url,status,result) VALUES (?,?,?)",
-                (self.urls[0], "succeeded", json.dumps({"url": self.urls[0]})),
+                (self.urls[0], "succeeded", json.dumps(course_record(self.urls[0]))),
             )
         with CrawlStore(self.database) as store:
             store.schedule_refresh()
@@ -497,5 +521,5 @@ with CrawlStore(Path(sys.argv[1])) as store:
             store.export(self.path / "courses.json")
             self.assertEqual(
                 json.loads((self.path / "courses.json").read_text()),
-                [{"url": self.urls[0]}],
+                [course_record(self.urls[0])],
             )

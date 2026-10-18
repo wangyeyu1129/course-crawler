@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from crawler.fields import FieldIndex, field_value, normalized_text
 from crawler.fields import get_labeled_field as get_labeled_field
 from crawler.http import HttpClient, HttpPolicy
+from crawler.models import Course, validate_course
 from crawler.urls import BASE_URL as BASE_URL
 from crawler.urls import course_url
 
@@ -32,7 +33,7 @@ def get_description(soup: BeautifulSoup) -> Optional[str]:
     return field_value(container) if container is not None else None
 
 
-def parse_course_page(html: str) -> dict[str, Optional[str]]:
+def parse_course_page(html: str) -> Course:
     """Parse one course. Optional absent fields are None; invalid titles fail."""
     soup = BeautifulSoup(html, "html.parser")
     title = soup.select_one("h1.page-title")
@@ -49,11 +50,13 @@ def parse_course_page(html: str) -> dict[str, Optional[str]]:
             "Course description content not found; page may be incomplete."
         )
     fields = FieldIndex(soup)
-    return {
-        "code": code.upper(),
-        "name": name,
-        "campus": "UTM",
-        "description": description,
-        **{key: fields.get(label) for key, label in FIELD_LABELS.items()},
-        "url": url,
-    }
+    return validate_course(
+        {
+            "code": code.upper(),
+            "name": name,
+            "campus": "UTM",
+            "description": description,
+            **{key: fields.get(label) for key, label in FIELD_LABELS.items()},
+            "url": url,
+        }
+    )

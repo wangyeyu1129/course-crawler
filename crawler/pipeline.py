@@ -5,6 +5,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from crawler.models import Course, validate_course
 from crawler.storage import CrawlStore
 from crawler.utm_course import parse_course_page
 
@@ -21,7 +22,7 @@ class CrawlSummary:
 @dataclass(frozen=True)
 class PageOutcome:
     url: str
-    result: Optional[dict] = None
+    result: Optional[Course] = None
     error: Optional[str] = None
 
 
@@ -30,9 +31,7 @@ def _process_page(url, fetch_page, parse_course) -> PageOutcome:
     try:
         html = fetch_page(url)
         stage = "parse"
-        result = parse_course(html)
-        if result.get("url") != url:
-            raise ValueError("Parsed course URL does not match the queued URL.")
+        result = validate_course(parse_course(html), expected_url=url)
         return PageOutcome(url, result=result)
     except Exception as error:
         LOGGER.exception("course_failed url=%s stage=%s", url, stage)

@@ -10,6 +10,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Callable, Iterable, Iterator, Optional, TextIO
 
+from crawler.models import Course, validate_course
 from crawler.snapshots import archive_file, file_digest
 from crawler.urls import normalize_course_url
 
@@ -251,8 +252,10 @@ class CrawlStore:
             self._pending_writes = 0
             raise
 
-    def save_success(self, url: str, result: dict) -> None:
-        payload = json.dumps(result, ensure_ascii=False)
+    def save_success(self, url: str, result: Course) -> None:
+        payload = json.dumps(
+            validate_course(result, expected_url=url), ensure_ascii=False
+        )
         with self._result_write():
             cursor = self.connection.execute(
                 """UPDATE courses SET status='succeeded', result=?, error=NULL,
