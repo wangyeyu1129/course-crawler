@@ -2,36 +2,21 @@
 
 import json
 import math
-import re
 import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
-from urllib.parse import parse_qs, urljoin, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from bs4 import BeautifulSoup
 
 from crawler.http import HttpClient, HttpPolicy
-from crawler.utm_course import BASE_URL, course_url
-
-SEARCH_URL = f"{BASE_URL}/course-search"
+from crawler.urls import SEARCH_URL, course_url, normalize_course_url, resolve_utm_url
 
 
 class DiscoveryError(ValueError):
     """The catalog cannot be traversed completely or safely."""
-
-
-def normalize_course_url(href: str, page_url: str = SEARCH_URL) -> Optional[str]:
-    """Accept only official UTM course paths; remove query/fragment variants."""
-    try:
-        url = urlsplit(urljoin(page_url, href.strip()))
-        if url.scheme != "https" or url.netloc != urlsplit(BASE_URL).netloc:
-            return None
-        match = re.fullmatch(r"/course/([^/]+)/?", url.path)
-        return course_url(match[1]) if match else None
-    except ValueError:
-        return None
 
 
 def extract_course_urls(html: str, page_url: str = SEARCH_URL) -> list[str]:
@@ -52,12 +37,13 @@ class SearchPage:
 
 def _page_url(href: str, current_url: str) -> str:
     """Canonicalize unfiltered search pagination; reject unexpected targets."""
-    url = urlsplit(urljoin(current_url, href))
+    try:
+        url = resolve_utm_url(href, current_url)
+    except ValueError as error:
+        raise DiscoveryError("Unexpected search pagination URL.") from error
     query = parse_qs(url.query, keep_blank_values=True)
     if (
-        url.scheme != "https"
-        or url.netloc != urlsplit(BASE_URL).netloc
-        or url.path != "/course-search"
+        url.path != "/course-search"
         or set(query) != {"page"}
         or len(query["page"]) != 1
         or not query["page"][0].isascii()
@@ -96,7 +82,7 @@ def parse_search_page(html: str, page_url: str = SEARCH_URL) -> SearchPage:
     active = pager.select('a[aria-current="page"][href]')
     if len(active) != 1:
         raise DiscoveryError("Current pagination marker not found or ambiguous.")
-    requested = _page_url("?page=0" if page_url == SEARCH_URL else page_url, SEARCH_URL)
+    requested = _page_url(page_url if urlsplit(page_url).query else "?page=0", page_url)
     current_url = _page_url(active[0]["href"], page_url)
     if current_url != requested:
         raise DiscoveryError(

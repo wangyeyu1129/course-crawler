@@ -194,7 +194,18 @@ class CourseTests(unittest.TestCase):
         self.assertEqual(
             course_url(" csc148h5 "), "https://utm.calendar.utoronto.ca/course/csc148h5"
         )
-        for code in ["", "../course", "CSC148H1", "CSC148H5?x=1"]:
+        for code in [
+            "",
+            "../course",
+            "CSC148H1",
+            "CSC148H5?x=1",
+            "CSC١٤٨H5",
+            "CSC１４８H5",
+            "CſC148H5",
+            "Cß148H5",
+            None,
+            148,
+        ]:
             with self.subTest(code=code), self.assertRaises(ValueError):
                 course_url(code)
 

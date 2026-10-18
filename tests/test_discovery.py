@@ -236,3 +236,47 @@ class DiscoveryTests(unittest.TestCase):
                     load_baseline_count(path)
             path.write_text("[]")
             self.assertIsNone(load_baseline_count(path))
+
+    def test_host_case_and_default_port_are_canonicalized(self):
+        variants = [
+            "https://UTM.CALENDAR.UTORONTO.CA/course/CSC148H5",
+            "https://utm.calendar.utoronto.ca:443/course/csc148h5",
+            "https://UTM.CALENDAR.UTORONTO.CA:443/course/CSC148H5/?x=1#top",
+        ]
+        html = "".join(f'<a href="{url}">Course</a>' for url in variants)
+        self.assertEqual(extract_course_urls(html), [course_url("CSC148H5")])
+
+    def test_invalid_origins_and_nonascii_codes_are_rejected(self):
+        for url in [
+            "https://user@utm.calendar.utoronto.ca/course/csc148h5",
+            "https://user:password@utm.calendar.utoronto.ca/course/csc148h5",
+            "https://utm.calendar.utoronto.ca:80/course/csc148h5",
+            "https://utm.calendar.utoronto.ca:/course/csc148h5",
+            "https://utm.calendar.utoronto.ca:bad/course/csc148h5",
+            "https://utm.calendar.utoronto.ca:99999/course/csc148h5",
+            "https://utm.calendar.utoronto.ca.evil.test/course/csc148h5",
+            "/course/CSC١٤٨H5",
+            "/course/CSC１４８H5",
+            "/course/CſC148H5",
+            None,
+        ]:
+            with self.subTest(url=url):
+                self.assertIsNone(normalize_course_url(url))
+
+    def test_pagination_uses_same_origin_normalization(self):
+        valid = page(
+            next_href="https://UTM.CALENDAR.UTORONTO.CA:443/course-search?page=1"
+        )
+        self.assertEqual(
+            parse_search_page(
+                valid, "https://UTM.CALENDAR.UTORONTO.CA:443/course-search"
+            ).next_url,
+            SEARCH_URL + "?page=1",
+        )
+        for origin in [
+            "https://user@utm.calendar.utoronto.ca",
+            "https://utm.calendar.utoronto.ca:80",
+            "https://utm.calendar.utoronto.ca:bad",
+        ]:
+            with self.subTest(origin=origin), self.assertRaises(DiscoveryError):
+                parse_search_page(page(next_href=origin + "/course-search?page=1"))

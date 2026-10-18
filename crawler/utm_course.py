@@ -1,14 +1,14 @@
 """UTM calendar adapter: fetch HTML separately from deterministic parsing."""
 
-import re
 from typing import Optional
 
 from bs4 import BeautifulSoup
 
 from crawler.fields import field_value, get_labeled_field, normalized_text
 from crawler.http import HttpClient, HttpPolicy
+from crawler.urls import BASE_URL as BASE_URL
+from crawler.urls import course_url
 
-BASE_URL = "https://utm.calendar.utoronto.ca"
 FIELD_LABELS = {
     "prerequisites": "Prerequisites",
     "exclusions": "Exclusions",
@@ -18,14 +18,6 @@ FIELD_LABELS = {
     "delivery_mode": "Mode of Delivery",
     "program_area": "Program Area",
 }
-
-
-def course_url(course_code: str) -> str:
-    """Build a UTM course URL from a validated calendar course code."""
-    code = course_code.strip().upper()
-    if not re.fullmatch(r"[A-Z]{3}\d{3}[HY]5", code):
-        raise ValueError("Invalid UTM course code.")
-    return f"{BASE_URL}/course/{code.lower()}"
 
 
 def fetch_course_page(course_code: str, *, policy: HttpPolicy = HttpPolicy()) -> str:

@@ -7,8 +7,8 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Iterable, Optional
 
-from crawler.discovery import normalize_course_url
 from crawler.snapshots import archive_file
+from crawler.urls import normalize_course_url
 
 
 def write_json_atomic(
