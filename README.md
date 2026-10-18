@@ -179,3 +179,13 @@ python main.py --crawl --workers 2
 
 正式 `--output` 仅在队列全部成功时更新。不完整运行写到旁边的 `progress/<输出文件名>`，
 不会替换先前完整结果；统计中的 `published` 和 `export_path` 明确指出发布状态与实际位置。
+
+详情页输入保存到输出旁的 `raw/<输出名>/html/<SHA-256>.html`，SQLite 索引关联 URL、run ID 和时间。
+这是实际交给 parser 的解码后 HTML 文本，统一 UTF-8 存储；相同正文只保存一份。
+
+```sh
+python main.py --crawl --operation reparse --raw-directory data/raw/utm_courses
+```
+
+离线重新解析可从归档创建空检查点，不访问网站。归档损坏/缺失明确失败。
+旧版本未保存的 HTML 需要后续抓取或刷新后才会出现；本地 raw 目录不自动提交 Git。

@@ -233,3 +233,25 @@ class RunnerTests(unittest.TestCase):
         metadata = json.loads(Path(result["metadata"]).read_text())
         self.assertFalse(metadata["complete"])
         self.assertFalse(metadata["published"])
+
+    @patch("crawler.runner.HttpClient")
+    @patch("crawler.runner.discover_course_urls")
+    def test_offline_reparse_bootstraps_from_archive_without_http(
+        self, discover, client_cls
+    ):
+        from crawler.raw_data import RawArchive
+
+        raw_path = self.root / "raw/courses"
+        html = (self.fixtures / "csc148h5.html").read_text()
+        with RawArchive(raw_path) as raw:
+            raw.capture(self.urls[0], html, "original")
+        client_cls.return_value.__enter__.return_value.get_text.side_effect = (
+            AssertionError("Offline mode")
+        )
+        result = run_crawl(**self.kwargs, operation="reparse", raw_directory=raw_path)
+        self.assertTrue(result["published"])
+        self.assertEqual(
+            json.loads(self.kwargs["output"].read_text())[0]["code"], "CSC148H5"
+        )
+        discover.assert_not_called()
+        client_cls.return_value.__enter__.return_value.get_text.assert_not_called()

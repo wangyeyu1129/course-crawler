@@ -42,8 +42,11 @@ def main() -> int:
     )
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument(
-        "--operation", choices=["resume", "discover", "refresh"], default="resume"
+        "--operation",
+        choices=["resume", "discover", "refresh", "reparse"],
+        default="resume",
     )
+    parser.add_argument("--raw-directory", type=Path)
     parser.add_argument("--http-cache", type=Path)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--commit-batch-size", type=int, default=1)
@@ -88,6 +91,7 @@ def main() -> int:
             refresh=args.refresh,
             operation=args.operation,
             http_cache=args.http_cache,
+            raw_directory=args.raw_directory,
             policy=policy,
         )
         print(json.dumps(result, indent=2))

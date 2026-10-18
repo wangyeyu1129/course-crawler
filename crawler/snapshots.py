@@ -26,18 +26,20 @@ def files_equal(left: Path, right: Path) -> bool:
                 return True
 
 
-def archive_file(source: Path, directory: Path) -> Path:
+def archive_file(source: Path, directory: Path, *, suffix: str = ".json") -> Path:
     """Archive a file by SHA-256 without overwriting an existing snapshot.
 
     The archive owns a separate inode, so editing the latest export cannot
     mutate history. Publish a fully flushed temporary file with an exclusive
     hard link; a concurrent identical archive is harmless.
     """
+    if suffix not in {".json", ".html"}:
+        raise ValueError("Unsupported snapshot suffix.")
     source = Path(source)
     digest = file_digest(source)
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    target = directory / f"{digest}.json"
+    target = directory / f"{digest}{suffix}"
 
     def verify_existing() -> Path:
         if not files_equal(source, target):

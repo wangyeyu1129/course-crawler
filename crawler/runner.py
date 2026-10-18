@@ -17,6 +17,7 @@ from crawler.discovery import (
 from crawler.http import HttpClient, HttpPolicy
 from crawler.http_cache import HttpCache
 from crawler.pipeline import CrawlSummary, crawl_courses
+from crawler.raw_data import RawArchive
 from crawler.run_records import RunRecord
 from crawler.storage import CrawlStore
 
@@ -90,13 +91,14 @@ def run_crawl(
     refresh: bool = False,
     http_cache: Optional[Path] = None,
     operation: str = "resume",
+    raw_directory: Optional[Path] = None,
 ) -> dict:
     """Discover once, resume persisted tasks, and export committed results.
 
     An explicit URL file can add tasks without re-fetching the search catalog.
     Interruptions still export previously committed results before propagating.
     """
-    if operation not in {"resume", "discover", "refresh"}:
+    if operation not in {"resume", "discover", "refresh", "reparse"}:
         raise ValueError("Unknown crawl operation.")
     if refresh:
         if operation != "resume":
@@ -118,7 +120,12 @@ def run_crawl(
         if http_cache is not None
         else Path(database).with_name(Path(database).stem + "_http.sqlite3")
     )
-    paths = [Path(cache_path).resolve()] + [
+    raw_path = (
+        Path(raw_directory)
+        if raw_directory is not None
+        else Path(output).parent / "raw" / Path(output).stem
+    )
+    paths = [raw_path.resolve(), Path(cache_path).resolve()] + [
         Path(path).resolve() for path in (database, output, log_file)
     ]
     if url_file is not None:
@@ -134,8 +141,14 @@ def run_crawl(
             with (
                 CrawlStore(database) as store,
                 HttpCache(cache_path) as cache,
+                RawArchive(raw_path) as raw,
                 HttpClient(policy, cache=cache) as client,
             ):
+                record.data["raw_directory"] = str(raw_path.resolve())
+                if operation == "reparse" and not sum(store.counts().values()):
+                    store.enqueue(raw.urls())
+                    if not sum(store.counts().values()):
+                        raise ValueError("No archived courses to reparse.")
                 if operation == "refresh" and not sum(store.counts().values()):
                     raise ValueError(
                         "No known courses to refresh; discover courses first."
@@ -166,15 +179,23 @@ def run_crawl(
                     logger.info(
                         "discovery_completed queued=%s", sum(store.counts().values())
                     )
-                if operation == "refresh":
+                if operation in {"refresh", "reparse"}:
                     store.schedule_refresh()
+
+                def fetch_course(url):
+                    if operation == "reparse":
+                        return raw.latest(url)
+                    html = client.get_text(url)
+                    raw.capture(url, html, record.run_id)
+                    return html
+
                 try:
                     summary = (
                         CrawlSummary(0, 0, 0)
                         if operation == "discover"
                         else crawl_courses(
                             store,
-                            client.get_text,
+                            fetch_course,
                             limit=limit,
                             retry_failed=retry_failed,
                             commit_batch_size=commit_batch_size,
