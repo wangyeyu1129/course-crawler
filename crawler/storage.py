@@ -7,7 +7,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Callable, Iterable, Optional, TextIO
 
-from crawler.snapshots import archive_file
+from crawler.snapshots import archive_file, file_digest
 from crawler.urls import normalize_course_url
 
 
@@ -93,6 +93,29 @@ class CrawlStore:
                 )
             """)
 
+            self.connection.executescript("""
+                CREATE TABLE IF NOT EXISTS dataset_version (
+                    id INTEGER PRIMARY KEY CHECK (id=1), revision INTEGER NOT NULL
+                );
+                INSERT OR IGNORE INTO dataset_version VALUES (1,0);
+                CREATE TABLE IF NOT EXISTS export_cache (
+                    path TEXT PRIMARY KEY, revision INTEGER NOT NULL,
+                    digest TEXT NOT NULL, format_version INTEGER NOT NULL
+                );
+                CREATE TRIGGER IF NOT EXISTS result_insert AFTER INSERT ON courses
+                WHEN NEW.result IS NOT NULL BEGIN
+                    UPDATE dataset_version SET revision=revision+1 WHERE id=1;
+                END;
+                CREATE TRIGGER IF NOT EXISTS result_update AFTER UPDATE OF result ON courses
+                WHEN OLD.result IS NOT NEW.result BEGIN
+                    UPDATE dataset_version SET revision=revision+1 WHERE id=1;
+                END;
+                CREATE TRIGGER IF NOT EXISTS result_delete AFTER DELETE ON courses
+                WHEN OLD.result IS NOT NULL BEGIN
+                    UPDATE dataset_version SET revision=revision+1 WHERE id=1;
+                END;
+            """)
+
     def __enter__(self):
         return self
 
@@ -162,6 +185,29 @@ class CrawlStore:
         return counts
 
     def export(self, path: Path) -> Path:
+        path = Path(path)
+        revision = self.connection.execute(
+            "SELECT revision FROM dataset_version WHERE id=1"
+        ).fetchone()[0]
+        cached = self.connection.execute(
+            "SELECT * FROM export_cache WHERE path=? AND format_version=1",
+            (str(path.resolve()),),
+        ).fetchone()
+        if (
+            cached is not None
+            and cached["revision"] == revision
+            and path.is_file()
+            and file_digest(path) == cached["digest"]
+        ):
+            snapshot = (
+                path.parent / "history" / path.stem / (cached["digest"] + ".json")
+            )
+            if snapshot.exists():
+                if file_digest(snapshot) != cached["digest"]:
+                    raise OSError(f"Snapshot integrity check failed: {snapshot}")
+            else:
+                snapshot = archive_file(path, snapshot.parent)
+            return snapshot
         courses = (
             json.loads(row[0])
             for row in self.connection.execute(
@@ -170,4 +216,9 @@ class CrawlStore:
         )
         snapshot = write_json_array_atomic(path, courses, preserve_history=True)
         assert snapshot is not None
+        with self.connection:
+            self.connection.execute(
+                "INSERT OR REPLACE INTO export_cache VALUES (?,?,?,1)",
+                (str(path.resolve()), revision, snapshot.stem),
+            )
         return snapshot

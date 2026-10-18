@@ -230,3 +230,61 @@ os._exit(9)
                 summary = crawl_courses(store, fetch, retry_failed=True)
             self.assertEqual((summary.processed, summary.failed), (1, 1))
             fetch.assert_called_once_with(self.urls[0])
+
+    def test_unchanged_export_is_reused_across_restarts(self):
+        output = self.path / "courses.json"
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls[:1])
+            store.save_success(self.urls[0], {"url": self.urls[0]})
+            first = store.export(output)
+        with (
+            CrawlStore(self.database) as store,
+            patch(
+                "crawler.storage.write_json_array_atomic",
+                side_effect=AssertionError("unnecessary serialization"),
+            ),
+        ):
+            self.assertEqual(store.export(output), first)
+            store.enqueue(self.urls[1:])
+            store.save_failure(self.urls[1], "404")
+            self.assertEqual(store.export(output), first)
+            first.unlink()
+            self.assertEqual(store.export(output), first)
+            self.assertTrue(first.exists())
+
+    def test_export_cache_detects_manual_edits_and_missing_output(self):
+        output = self.path / "courses.json"
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls[:1])
+            store.save_success(self.urls[0], {"url": self.urls[0]})
+            first = store.export(output)
+            output.write_text('["edited"]')
+            self.assertEqual(store.export(output), first)
+            self.assertEqual(json.loads(output.read_text()), [{"url": self.urls[0]}])
+            self.assertEqual(len(list(first.parent.glob("*.json"))), 2)
+            output.unlink()
+            self.assertEqual(store.export(output), first)
+
+    def test_export_cache_invalidates_on_results_and_detects_corruption(self):
+        output = self.path / "courses.json"
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls[:1])
+            store.save_success(self.urls[0], {"url": self.urls[0]})
+            first = store.export(output)
+            store.save_success(self.urls[0], {"url": self.urls[0], "name": "changed"})
+            second = store.export(output)
+            self.assertNotEqual(first, second)
+            second.write_text("corrupt")
+            with self.assertRaisesRegex(OSError, "integrity"):
+                store.export(output)
+
+    def test_direct_database_changes_invalidate_cached_export(self):
+        output = self.path / "courses.json"
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls[:1])
+            store.save_success(self.urls[0], {"url": self.urls[0]})
+            store.export(output)
+            with store.connection:
+                store.connection.execute("DELETE FROM courses")
+            store.export(output)
+            self.assertEqual(json.loads(output.read_text()), [])
