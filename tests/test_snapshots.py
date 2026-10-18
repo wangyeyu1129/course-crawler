@@ -145,3 +145,32 @@ class SnapshotTests(unittest.TestCase):
             write_json_array_atomic(self.output, values(), preserve_history=True)
         self.assertEqual(self.output.read_bytes(), previous)
         self.assertFalse((self.output.parent / "history").exists())
+
+    def test_large_snapshot_uses_bounded_reads(self):
+        self.output.parent.mkdir(parents=True)
+        payload = b"abcdef" * 30000 + b"tail"
+        self.output.write_bytes(payload)
+        with patch.object(
+            Path, "read_bytes", side_effect=AssertionError("whole-file read")
+        ):
+            first = archive_file(self.output, self.root / "archive")
+            second = archive_file(self.output, self.root / "archive")
+        self.assertEqual(first, second)
+        self.assertEqual(first.read_bytes(), payload)
+        self.assertEqual(first.stem, hashlib.sha256(payload).hexdigest())
+
+    def test_changed_source_during_copy_is_not_published(self):
+        from crawler.snapshots import file_digest
+
+        write_json_atomic(self.output, ["old"])
+
+        def mutate(path):
+            digest = file_digest(path)
+            path.write_text("changed")
+            return digest
+
+        directory = self.root / "archive"
+        with patch("crawler.snapshots.file_digest", side_effect=mutate):
+            with self.assertRaisesRegex(OSError, "Source changed"):
+                archive_file(self.output, directory)
+        self.assertEqual(list(directory.iterdir()), [])

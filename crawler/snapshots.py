@@ -5,6 +5,26 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+CHUNK_SIZE = 64 * 1024
+
+
+def file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(CHUNK_SIZE), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def files_equal(left: Path, right: Path) -> bool:
+    with Path(left).open("rb") as first, Path(right).open("rb") as second:
+        while True:
+            chunk = first.read(CHUNK_SIZE)
+            if chunk != second.read(CHUNK_SIZE):
+                return False
+            if not chunk:
+                return True
+
 
 def archive_file(source: Path, directory: Path) -> Path:
     """Archive a file by SHA-256 without overwriting an existing snapshot.
@@ -13,13 +33,14 @@ def archive_file(source: Path, directory: Path) -> Path:
     mutate history. Publish a fully flushed temporary file with an exclusive
     hard link; a concurrent identical archive is harmless.
     """
-    payload = Path(source).read_bytes()
+    source = Path(source)
+    digest = file_digest(source)
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    target = directory / f"{hashlib.sha256(payload).hexdigest()}.json"
+    target = directory / f"{digest}.json"
 
     def verify_existing() -> Path:
-        if target.read_bytes() != payload:
+        if not files_equal(source, target):
             raise OSError(f"Snapshot integrity check failed: {target}")
         return target
 
@@ -31,7 +52,13 @@ def archive_file(source: Path, directory: Path) -> Path:
             dir=directory, prefix=".snapshot-", delete=False
         ) as handle:
             temporary = Path(handle.name)
-            handle.write(payload)
+            copied = hashlib.sha256()
+            with source.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(CHUNK_SIZE), b""):
+                    handle.write(chunk)
+                    copied.update(chunk)
+            if copied.hexdigest() != digest:
+                raise OSError("Source changed during snapshot creation.")
             handle.flush()
             os.fsync(handle.fileno())
         try:
