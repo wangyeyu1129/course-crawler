@@ -9,7 +9,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
-from crawler.discovery import discover_course_urls
+from crawler.discovery import discover_course_urls, load_baseline_count
 from crawler.http import HttpClient, HttpPolicy
 from crawler.pipeline import crawl_courses
 from crawler.storage import CrawlStore
@@ -60,6 +60,7 @@ def run_crawl(
     policy: HttpPolicy = HttpPolicy(),
     url_file: Optional[Path] = None,
     limit: Optional[int] = None,
+    max_count_drop: float = 0.1,
 ) -> dict:
     """Discover once, resume persisted tasks, and export committed results.
 
@@ -90,7 +91,12 @@ def run_crawl(
                 elif not sum(store.counts().values()):
                     logger.info("discovery_started")
                     store.enqueue(
-                        discover_course_urls(client.get_text, delay_seconds=0)
+                        discover_course_urls(
+                            client.get_text,
+                            delay_seconds=0,
+                            baseline_count=load_baseline_count(output),
+                            max_count_drop=max_count_drop,
+                        )
                     )
                     logger.info(
                         "discovery_completed queued=%s", sum(store.counts().values())

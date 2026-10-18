@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from crawler.discovery import discover_course_urls
+from crawler.discovery import discover_course_urls, load_baseline_count
 from crawler.http import HttpClient, HttpPolicy
 from crawler.runner import run_crawl
 from crawler.storage import write_json_atomic
@@ -31,6 +31,7 @@ def main() -> int:
     parser.add_argument(
         "--limit", type=int, help="Process at most this many unfinished URLs."
     )
+    parser.add_argument("--max-count-drop", type=float, default=0.1)
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument(
         "--timeout", type=float, default=30.0, help="Read timeout in seconds."
@@ -54,13 +55,21 @@ def main() -> int:
             log_file=args.log_file,
             url_file=args.url_file,
             limit=args.limit,
+            max_count_drop=args.max_count_drop,
             policy=policy,
         )
         print(json.dumps(result, indent=2))
         return 1 if result["queue"]["failed"] else 0
     if args.discover:
         with HttpClient(policy) as client:
-            result = list(discover_course_urls(client.get_text, delay_seconds=0))
+            result = list(
+                discover_course_urls(
+                    client.get_text,
+                    delay_seconds=0,
+                    baseline_count=load_baseline_count(args.output),
+                    max_count_drop=args.max_count_drop,
+                )
+            )
     else:
         result = parse_course_page(fetch_course_page(args.course_code, policy=policy))
     payload = json.dumps(result, indent=2)

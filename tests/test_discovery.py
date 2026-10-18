@@ -1,8 +1,10 @@
 """Catalog discovery contracts and failure boundaries."""
 
+import json
 import unittest
 from collections import deque
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 import requests
@@ -12,13 +14,14 @@ from crawler.discovery import (
     DiscoveryError,
     discover_course_urls,
     extract_course_urls,
+    load_baseline_count,
     normalize_course_url,
     parse_search_page,
 )
 from crawler.utm_course import course_url
 
 
-def page(codes=("CSC148H5",), next_href=None):
+def page(codes=("CSC148H5",), next_href=None, current=0):
     headings = "".join(
         f'<h3 class="js-views-accordion-group-header">{code} • Name</h3>'
         for code in codes
@@ -28,7 +31,7 @@ def page(codes=("CSC148H5",), next_href=None):
         if next_href
         else ""
     )
-    return f'<div class="view-content">{headings}</div>{pager}'
+    return f'<div class="view-content">{headings}</div><nav class="pager"><a aria-current="page" href="?page={current}">Current</a>{pager}</nav>'
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -83,7 +86,7 @@ class DiscoveryTests(unittest.TestCase):
     def test_traversal_order_and_global_dedup(self):
         pages = {
             SEARCH_URL + "?page=0": page(("CSC148H5", "MAT102H5"), "?page=1"),
-            SEARCH_URL + "?page=1": page(("MAT102H5", "CSC108H5")),
+            SEARCH_URL + "?page=1": page(("MAT102H5", "CSC108H5"), current=1),
         }
         fetch = Mock(side_effect=pages.__getitem__)
         queue = discover_course_urls(fetch, delay_seconds=0)
@@ -135,7 +138,7 @@ class DiscoveryTests(unittest.TestCase):
     @patch("crawler.discovery.HttpClient")
     def test_http_contract(self, client_cls):
         client = client_cls.return_value.__enter__.return_value
-        client.get_text.side_effect = [page(next_href="?page=1"), page()]
+        client.get_text.side_effect = [page(next_href="?page=1"), page(current=1)]
         self.assertEqual(len(discover_course_urls()), 1)
         client.get_text.assert_any_call(SEARCH_URL + "?page=0")
         client_cls.assert_called_once()
@@ -146,6 +149,90 @@ class DiscoveryTests(unittest.TestCase):
 
     @patch("crawler.discovery.time.sleep")
     def test_injected_fetcher_throttle(self, sleep):
-        fetch = Mock(side_effect=[page(next_href="?page=1"), page()])
+        fetch = Mock(side_effect=[page(next_href="?page=1"), page(current=1)])
         discover_course_urls(fetch)
         sleep.assert_called_once_with(1.0)
+
+    def test_missing_or_inconsistent_pagination_is_rejected(self):
+        html = (Path(__file__).parent / "fixtures/search-first.html").read_text()
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(html, "html.parser")
+        soup.select_one("nav.pager").decompose()
+        with self.assertRaisesRegex(DiscoveryError, "pagination"):
+            parse_search_page(str(soup))
+        for html in [
+            page(current=1),
+            page().replace('aria-current="page"', ""),
+            page(next_href="?page=2"),
+        ]:
+            with self.subTest(html=html), self.assertRaises(DiscoveryError):
+                parse_search_page(html)
+
+    def test_early_termination_is_rejected_across_pages(self):
+        first = page(next_href="?page=1").replace(
+            "</nav>", '<a href="?page=2">3</a></nav>'
+        )
+        fetch = Mock(side_effect=[first, page(current=1)])
+        with self.assertRaisesRegex(DiscoveryError, "final page changed"):
+            discover_course_urls(fetch, delay_seconds=0)
+
+    def test_historical_decline_threshold_and_growth(self):
+        for count, baseline, allowed, fails in [
+            (90, 100, 0.1, False),
+            (89, 100, 0.1, True),
+            (101, 100, 0.1, False),
+            (2, 3, 1 / 3, False),
+            (1, 100, 1, False),
+            (1, None, 0.1, False),
+        ]:
+            codes = tuple(f"CSC{100 + i:03}H5" for i in range(count))
+            with self.subTest(count=count, baseline=baseline):
+                if fails:
+                    with self.assertRaisesRegex(DiscoveryError, "count fell"):
+                        discover_course_urls(
+                            lambda url: page(codes),
+                            delay_seconds=0,
+                            baseline_count=baseline,
+                            max_count_drop=allowed,
+                        )
+                else:
+                    self.assertEqual(
+                        len(
+                            discover_course_urls(
+                                lambda url: page(codes),
+                                delay_seconds=0,
+                                baseline_count=baseline,
+                                max_count_drop=allowed,
+                            )
+                        ),
+                        count,
+                    )
+
+    def test_invalid_baseline_configuration(self):
+        for kwargs in [
+            {"baseline_count": 0},
+            {"baseline_count": True},
+            {"max_count_drop": -0.1},
+            {"max_count_drop": float("nan")},
+            {"max_count_drop": 1.1},
+        ]:
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                discover_course_urls(**kwargs)
+
+    def test_baseline_queue_and_result_formats(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "baseline.json"
+            self.assertIsNone(load_baseline_count(path))
+            for payload in [
+                [course_url("CSC148H5")] * 2,
+                [{"url": course_url("CSC148H5")}],
+            ]:
+                path.write_text(json.dumps(payload))
+                self.assertEqual(load_baseline_count(path), 1)
+            for payload in [{}, ["bad"], [{"code": "CSC148H5"}], [None]]:
+                path.write_text(json.dumps(payload))
+                with self.assertRaises(DiscoveryError):
+                    load_baseline_count(path)
+            path.write_text("[]")
+            self.assertIsNone(load_baseline_count(path))

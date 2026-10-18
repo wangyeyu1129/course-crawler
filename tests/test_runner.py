@@ -48,7 +48,9 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(second["snapshot"], third["snapshot"])
         self.assertEqual(len(json.loads(first_snapshot.read_text())), 1)
         self.assertEqual(client.get_text.call_count, 2)
-        discover.assert_called_once_with(client.get_text, delay_seconds=0)
+        discover.assert_called_once_with(
+            client.get_text, delay_seconds=0, baseline_count=None, max_count_drop=0.1
+        )
         self.assertEqual(len(json.loads(self.kwargs["output"].read_text())), 2)
         self.assertIn("crawl_completed", self.kwargs["log_file"].read_text())
 
