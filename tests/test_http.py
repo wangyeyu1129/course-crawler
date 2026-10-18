@@ -245,3 +245,40 @@ class HttpTests(unittest.TestCase):
                     self.assertRaises(ValueError),
                 ):
                     HttpPolicy(**{name: value})
+
+    @patch("crawler.http.requests.Session")
+    def test_workers_have_separate_sessions_and_one_rate_limit(self, session_cls):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        clock = Clock()
+        sessions = []
+        lock = threading.Lock()
+        barrier = threading.Barrier(2)
+
+        def create():
+            session = Mock()
+
+            def request(*args, **kwargs):
+                barrier.wait(2)
+                return response()
+
+            session.get.side_effect = request
+            with lock:
+                sessions.append(session)
+            return session
+
+        session_cls.side_effect = create
+        with HttpClient(
+            HttpPolicy(interval=1), clock=clock.clock, sleep=clock.sleep
+        ) as client:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                self.assertEqual(
+                    list(executor.map(client.get_text, ["a", "b", "c", "d"])),
+                    ["html"] * 4,
+                )
+            self.assertGreaterEqual(client._next_request, 4)
+        self.assertGreaterEqual(len(sessions), 3)
+        self.assertEqual(sum(s.get.call_count for s in sessions), 4)
+        for session in sessions:
+            session.close.assert_called_once()

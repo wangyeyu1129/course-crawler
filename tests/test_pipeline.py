@@ -400,3 +400,68 @@ with CrawlStore(Path(sys.argv[1])) as store:
         self.assertEqual(process.returncode, 9)
         with CrawlStore(self.database) as store:
             self.assertEqual(store.counts()["pending"], 1)
+
+    def test_concurrent_fetch_is_bounded_and_database_has_one_writer(self):
+        import threading
+        from threading import Event, Lock
+
+        gate = Event()
+        lock = Lock()
+        active = 0
+        peak = 0
+
+        def fetch(url):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+                if active == 2:
+                    gate.set()
+            if not gate.wait(2):
+                raise RuntimeError("No overlap")
+            with lock:
+                active -= 1
+            return url
+
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls)
+            save = store.save_success
+
+            def save_on_owner(url, result):
+                self.assertIs(threading.current_thread(), threading.main_thread())
+                save(url, result)
+
+            with patch.object(store, "save_success", side_effect=save_on_owner):
+                result = crawl_courses(
+                    store, fetch, parse_course=lambda url: {"url": url}, workers=2
+                )
+            self.assertEqual(result.succeeded, 3)
+            self.assertEqual(peak, 2)
+
+    def test_concurrent_page_failure_is_isolated(self):
+        with CrawlStore(self.database) as store:
+            store.enqueue(self.urls)
+
+            def fetch(url):
+                if url == self.urls[0]:
+                    raise requests.Timeout("offline")
+                return url
+
+            with self.assertLogs("crawler.pipeline", level="ERROR"):
+                result = crawl_courses(
+                    store,
+                    fetch,
+                    parse_course=lambda url: {"url": url},
+                    workers=2,
+                    commit_batch_size=2,
+                )
+            self.assertEqual((result.succeeded, result.failed), (2, 1))
+            self.assertEqual(
+                store.counts(), {"pending": 0, "succeeded": 2, "failed": 1}
+            )
+
+    def test_invalid_worker_count_stops_before_fetch(self):
+        with CrawlStore(self.database) as store:
+            for workers in [0, 17, True, 1.5]:
+                with self.subTest(workers=workers), self.assertRaises(ValueError):
+                    crawl_courses(store, Mock(), workers=workers)

@@ -2,6 +2,7 @@
 
 import logging
 import math
+import threading
 import time
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
@@ -72,13 +73,46 @@ class HttpClient:
         self._sleep = sleep
         self._wall_clock = wall_clock
         self._next_request = 0.0
+        self._rate_lock = threading.Lock()
+        self._session_lock = threading.Lock()
+        self._owner_thread = threading.get_ident()
+        self._thread_session = threading.local()
+        self._sessions = [self.session]
 
     def __enter__(self):
         return self
 
     def __exit__(self, *args) -> None:
         if self._owns_session:
-            self.session.close()
+            for session in self._sessions:
+                session.close()
+
+    def _session_for_thread(self):
+        if threading.get_ident() == self._owner_thread:
+            return self.session
+        if not self._owns_session:
+            raise RuntimeError(
+                "Injected sessions may only be used by their creating thread."
+            )
+        if not hasattr(self._thread_session, "session"):
+            with self._session_lock:
+                session = requests.Session()
+                self._sessions.append(session)
+                self._thread_session.session = session
+        return self._thread_session.session
+
+    def _wait_for_slot(self) -> None:
+        while True:
+            with self._rate_lock:
+                wait = max(0.0, self._next_request - self._clock())
+                if not wait:
+                    self._next_request = self._clock() + self.policy.interval
+                    return
+            self._sleep(wait)
+
+    def _defer(self, delay: float) -> None:
+        with self._rate_lock:
+            self._next_request = max(self._next_request, self._clock() + delay)
 
     def _retry_after(self, value: str) -> float:
         try:
@@ -92,14 +126,10 @@ class HttpClient:
 
     def get_text(self, url: str) -> str:
         for attempt in range(self.policy.retries + 1):
-            wait = max(0.0, self._next_request - self._clock())
-            if wait:
-                self._sleep(wait)
+            self._wait_for_slot()
             retry_after = 0.0
             try:
-                # Start-to-start spacing also applies to unsuccessful attempts.
-                self._next_request = self._clock() + self.policy.interval
-                response = self.session.get(
+                response = self._session_for_thread().get(
                     url,
                     headers={"User-Agent": self.policy.user_agent},
                     timeout=(self.policy.connect_timeout, self.policy.read_timeout),
@@ -131,14 +161,11 @@ class HttpClient:
                 requests.exceptions.ChunkedEncodingError,
             ) as error:
                 failure = error
-            self._next_request = max(
-                self._next_request,
-                self._clock() + retry_after,
-            )
+            self._defer(retry_after)
             if attempt == self.policy.retries:
                 raise failure
             delay = max(self.policy.backoff * 2**attempt, retry_after)
-            self._next_request = max(self._next_request, self._clock() + delay)
+            self._defer(delay)
             LOGGER.warning(
                 "request_retry url=%s attempt=%s wait_seconds=%s error=%s",
                 url,

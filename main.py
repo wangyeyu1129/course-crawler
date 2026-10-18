@@ -40,6 +40,7 @@ def main() -> int:
         action="store_true",
         help="Retry failed courses after pending courses.",
     )
+    parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--commit-batch-size", type=int, default=1)
     parser.add_argument("--max-count-drop", type=float, default=0.1)
     parser.add_argument("--interval", type=float, default=1.0)
@@ -59,6 +60,8 @@ def main() -> int:
             interval=args.interval,
             retries=args.retries,
         )
+        if not 1 <= args.workers <= 16:
+            raise ValueError("workers must be between 1 and 16.")
         if args.commit_batch_size < 1:
             raise ValueError("commit_batch_size must be positive.")
         validate_count_drop(args.max_count_drop)
@@ -76,6 +79,7 @@ def main() -> int:
             max_count_drop=args.max_count_drop,
             retry_failed=args.retry_failed,
             commit_batch_size=args.commit_batch_size,
+            workers=args.workers,
             policy=policy,
         )
         print(json.dumps(result, indent=2))

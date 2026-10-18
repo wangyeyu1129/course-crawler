@@ -67,6 +67,7 @@ def run_crawl(
     max_count_drop: float = 0.1,
     retry_failed: bool = False,
     commit_batch_size: int = 1,
+    workers: int = 1,
 ) -> dict:
     """Discover once, resume persisted tasks, and export committed results.
 
@@ -77,6 +78,8 @@ def run_crawl(
         raise ValueError("limit must be a positive integer.")
     if type(commit_batch_size) is not int or commit_batch_size < 1:
         raise ValueError("commit_batch_size must be a positive integer.")
+    if type(workers) is not int or not 1 <= workers <= 16:
+        raise ValueError("workers must be between 1 and 16.")
     validate_count_drop(max_count_drop)
     paths = [Path(path).resolve() for path in (database, output, log_file)]
     if url_file is not None:
@@ -117,6 +120,7 @@ def run_crawl(
                         limit=limit,
                         retry_failed=retry_failed,
                         commit_batch_size=commit_batch_size,
+                        workers=workers,
                     )
                 except BaseException:
                     # Best-effort export must not replace the task's failure or interrupt.
