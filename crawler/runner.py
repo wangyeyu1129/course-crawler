@@ -98,8 +98,12 @@ def run_crawl(
                 try:
                     summary = crawl_courses(store, client.get_text, limit=limit)
                 finally:
-                    store.export(output)
-                result = {"run": asdict(summary), "queue": store.counts()}
+                    snapshot = store.export(output)
+                result = {
+                    "run": asdict(summary),
+                    "queue": store.counts(),
+                    "snapshot": str(snapshot),
+                }
                 logger.info("crawl_completed summary=%s", json.dumps(result))
                 return result
         except KeyboardInterrupt:

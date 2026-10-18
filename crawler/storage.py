@@ -5,13 +5,16 @@ import os
 import sqlite3
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Iterable
+from typing import Iterable, Optional
 
 from crawler.discovery import normalize_course_url
+from crawler.snapshots import archive_file
 
 
-def write_json_atomic(path: Path, value) -> None:
-    """Replace an export only after its new contents have been flushed."""
+def write_json_atomic(
+    path: Path, value, *, preserve_history: bool = False
+) -> Optional[Path]:
+    """Publish JSON atomically, optionally archiving old and new bytes first."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
@@ -28,7 +31,14 @@ def write_json_atomic(path: Path, value) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
+        snapshot = None
+        if preserve_history:
+            directory = path.parent / "history" / path.stem
+            if path.exists():
+                archive_file(path, directory)
+            snapshot = archive_file(temporary, directory)
         os.replace(temporary, path)
+        return snapshot
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
@@ -119,11 +129,13 @@ class CrawlStore:
         )
         return counts
 
-    def export(self, path: Path) -> None:
+    def export(self, path: Path) -> Path:
         courses = [
             json.loads(row[0])
             for row in self.connection.execute(
                 "SELECT result FROM courses WHERE status='succeeded' ORDER BY url"
             )
         ]
-        write_json_atomic(path, courses)
+        snapshot = write_json_atomic(path, courses, preserve_history=True)
+        assert snapshot is not None
+        return snapshot

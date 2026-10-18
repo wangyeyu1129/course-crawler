@@ -38,11 +38,15 @@ class RunnerTests(unittest.TestCase):
             (self.fixtures / "csc108h5.html").read_text(),
         ]
         first = run_crawl(**self.kwargs, limit=1)
+        first_snapshot = Path(first["snapshot"])
+        self.assertEqual(len(json.loads(first_snapshot.read_text())), 1)
         self.assertEqual(first["queue"]["pending"], 1)
         second = run_crawl(**self.kwargs)
         self.assertEqual(second["queue"]["succeeded"], 2)
         third = run_crawl(**self.kwargs)
         self.assertEqual(third["run"]["processed"], 0)
+        self.assertEqual(second["snapshot"], third["snapshot"])
+        self.assertEqual(len(json.loads(first_snapshot.read_text())), 1)
         self.assertEqual(client.get_text.call_count, 2)
         discover.assert_called_once_with(client.get_text, delay_seconds=0)
         self.assertEqual(len(json.loads(self.kwargs["output"].read_text())), 2)

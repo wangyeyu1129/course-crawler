@@ -99,3 +99,28 @@ ruff check crawler main.py tests
 ruff format --check crawler main.py tests
 python -m unittest discover -s tests -v
 ```
+
+## Phase 4：JSON 数据与历史快照
+
+每次 `--crawl` 导出课程结果时，同时保留历史版本：
+
+```text
+data/
+  utm_courses.json                         # 当前成功课程结果
+  history/
+    utm_courses/
+      <SHA-256>.json                       # 历史结果，按内容去重
+```
+
+命令和 12 个课程字段保持一致。运行结束的统计会给出 `snapshot` 文件路径；
+使用自定义 `--output path/name.json` 时，历史文件自动放在同目录的 `history/name/`。
+已有旧文件会在替换前归档，新结果也会先归档；字节完全一致时复用原快照，
+内容变化时产生新快照。应用不会覆盖已有历史文件，手工编辑当前文件不会修改历史。
+归档或发布失败会报错，并保留此前的当前文件；数据库检查点仍可用于恢复。
+
+本阶段的 Raw Data 指课程解析结果 JSON，方便检查和对比历史结果。
+它没有保存原始 HTML，不能独立用于离线重新运行 parser；如需这一能力，后续应在 HTTP/持久化层保存 HTML。
+历史文件是成功结果集合，可能来自分批或含失败的抓取；完整性需结合运行统计/日志判断。
+快照内容标识不表示运行时间或 parser 版本；本版不增加元数据文件、自动清理或远程备份。
+
+[Phase 4 完成报告](docs/reports/phase-4.md)
