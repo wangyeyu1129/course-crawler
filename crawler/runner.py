@@ -58,6 +58,23 @@ def crawl_logging(path: Path):
         handler.close()
 
 
+def export_run(store: CrawlStore, output: Path, record: RunRecord) -> Path:
+    counts = store.counts()
+    complete = (
+        bool(sum(counts.values())) and counts["pending"] == 0 and counts["failed"] == 0
+    )
+    target = (
+        Path(output)
+        if complete
+        else Path(output).parent / "progress" / Path(output).name
+    )
+    snapshot = store.export(target)
+    record.snapshot(snapshot)
+    record.data["published"] = complete
+    record.data["export_path"] = str(target.resolve())
+    return snapshot
+
+
 def run_crawl(
     *,
     database: Path,
@@ -167,17 +184,18 @@ def run_crawl(
                 except BaseException:
                     # Best-effort export must not replace the task's failure or interrupt.
                     try:
-                        record.snapshot(store.export(output))
+                        export_run(store, output, record)
                     except Exception:
                         logger.exception("export_failed_during_abort")
                     raise
                 else:
-                    snapshot = store.export(output)
-                    record.snapshot(snapshot)
+                    snapshot = export_run(store, output, record)
                 record.data["run"] = asdict(summary)
                 result = {
                     "run_id": record.run_id,
                     "metadata": str(record.path),
+                    "published": record.data.get("published", False),
+                    "export_path": record.data.get("export_path"),
                     "run": asdict(summary),
                     "queue": store.counts(),
                     "snapshot": str(snapshot),

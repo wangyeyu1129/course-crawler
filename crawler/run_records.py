@@ -54,6 +54,7 @@ class RunRecord:
             "snapshot_sha256": None,
             "queue": None,
             "complete": False,
+            "published": False,
             **code_identity(),
         }
 

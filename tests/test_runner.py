@@ -72,7 +72,9 @@ class RunnerTests(unittest.TestCase):
         self.assertIn(self.urls[0], text)
         self.assertIn("stage=parse", text)
         self.assertIn("Traceback", text)
-        self.assertEqual(len(json.loads(self.kwargs["output"].read_text())), 1)
+        self.assertEqual(
+            len(json.loads((self.root / "progress/courses.json").read_text())), 1
+        )
 
     @patch("crawler.runner.HttpClient")
     def test_interrupt_exports_committed_results(self, client_cls):
@@ -85,7 +87,9 @@ class RunnerTests(unittest.TestCase):
         ]
         with self.assertRaises(KeyboardInterrupt):
             run_crawl(**self.kwargs)
-        self.assertEqual(len(json.loads(self.kwargs["output"].read_text())), 1)
+        self.assertEqual(
+            len(json.loads((self.root / "progress/courses.json").read_text())), 1
+        )
         with CrawlStore(self.kwargs["database"]) as store:
             self.assertEqual(store.counts()["pending"], 1)
 
@@ -211,3 +215,21 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(len(metadata["parser_version"]), 64)
         self.assertTrue(metadata["started_at"])
         self.assertTrue(metadata["finished_at"])
+
+    @patch("crawler.runner.HttpClient")
+    def test_partial_run_does_not_replace_published_complete_output(self, client_cls):
+        self.kwargs["output"].write_text('["previous complete data"]')
+        with CrawlStore(self.kwargs["database"]) as store:
+            store.enqueue(self.urls)
+        client_cls.return_value.__enter__.return_value.get_text.return_value = (
+            self.fixtures / "csc148h5.html"
+        ).read_text()
+        result = run_crawl(**self.kwargs, limit=1)
+        self.assertFalse(result["published"])
+        self.assertEqual(
+            self.kwargs["output"].read_text(), '["previous complete data"]'
+        )
+        self.assertEqual(len(json.loads(Path(result["export_path"]).read_text())), 1)
+        metadata = json.loads(Path(result["metadata"]).read_text())
+        self.assertFalse(metadata["complete"])
+        self.assertFalse(metadata["published"])

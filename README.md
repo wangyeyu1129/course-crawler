@@ -176,3 +176,6 @@ python main.py --crawl --workers 2
 
 每次采集的独立元数据保存到输出旁的 `runs/<输出名>/<run_id>.json`，
 记录 UTC 时间、Git revision、parser 源码哈希、操作、任务统计及课程快照哈希；课程 JSON 结构不变。
+
+正式 `--output` 仅在队列全部成功时更新。不完整运行写到旁边的 `progress/<输出文件名>`，
+不会替换先前完整结果；统计中的 `published` 和 `export_path` 明确指出发布状态与实际位置。
